@@ -3,6 +3,8 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 COPY pyproject.toml ./
 COPY main.py tts.py ./
-RUN uv sync --no-dev
+COPY start.sh ./
+RUN uv sync --no-dev && chmod +x start.sh
 EXPOSE 8001
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+ENV TTS_HOME=/tmp/tts_models
+CMD ["./start.sh"]

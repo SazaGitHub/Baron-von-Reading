@@ -11,7 +11,8 @@ function applyPhoneticDict(text: string, dict: PhoneticRow[]): string {
   let result = text;
   for (const { word, phonetic } of dict) {
     // Replace whole-word occurrences (case-insensitive)
-    const re = new RegExp(`\b${word.replace(/[.*+?^${}()|[\]\]/g, "\$&")}\b`, "gi");
+    const escaped = word.replace(/[.*+?^${}()|[\]\]/g, "\$&");
+    const re = new RegExp(`\b${escaped}\b`, "gi");
     result = result.replace(re, phonetic);
   }
   return result;
