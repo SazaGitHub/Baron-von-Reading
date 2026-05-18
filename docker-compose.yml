@@ -4,8 +4,7 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
 
   backend:
     build: ./backend
@@ -18,26 +17,13 @@ services:
       - ./backend/data:/app/data
       - ./backend/db.sqlite:/app/db.sqlite
     depends_on:
-      tts-service:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/auth/login", "-X", "POST"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      - tts-service
 
   tts-service:
     build: ./tts-service
     # NOT exposed externally — internal Docker network only
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     deploy:
       resources:
         reservations:
