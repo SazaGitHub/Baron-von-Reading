@@ -3,6 +3,7 @@ import { handleSettingsAsync } from "./routes/settings";
 import { handleProgress } from "./routes/progress";
 import { handleBooks } from "./routes/books";
 import { handleTtsProxy } from "./routes/tts-proxy";
+import { handlePhonetic } from "./routes/phonetic";
 import { authMiddleware } from "./middleware/auth";
 
 const PORT = parseInt(process.env["PORT"] ?? "3000", 10);
@@ -36,8 +37,11 @@ Bun.serve({
     if (url.pathname.startsWith("/api/settings")) {
       return handleSettingsAsync(req, userId);
     }
+    if (url.pathname.startsWith("/api/phonetic-dict")) {
+      return handlePhonetic(req, userId);
+    }
     if (url.pathname.startsWith("/api/tts")) {
-      return handleTtsProxy(req);
+      return handleTtsProxy(req, userId);
     }
 
     return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });

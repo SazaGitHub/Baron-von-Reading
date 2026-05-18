@@ -10,12 +10,16 @@ const defaultSettings: Settings = {
 const [settings, setSettings] = createStore<Settings>({ ...defaultSettings });
 
 export async function loadSettings(): Promise<void> {
-  const data = await getSettings();
-  setSettings(data);
+  try {
+    const data = await getSettings();
+    setSettings(data);
+  } catch {
+    // use defaults if not logged in yet
+  }
 }
 
 export async function saveSettings(): Promise<void> {
-  await putSettings({ ...settings });
+  await putSettings({ speed: settings.speed, theme: settings.theme, fontSize: settings.fontSize });
 }
 
 export { settings, setSettings };
