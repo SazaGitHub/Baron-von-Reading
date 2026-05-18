@@ -15,6 +15,12 @@ class SynthesizeRequest(BaseModel):
     speaker_wav: str | None = None
 
 
+@app.get("/health")
+async def health() -> dict[str, str]:
+    """Health check endpoint."""
+    return {"status": "ok"}
+
+
 @app.post("/synthesize")
 async def synthesize_endpoint(req: SynthesizeRequest) -> StreamingResponse:
     """Synthesize speech and stream back WAV audio."""
