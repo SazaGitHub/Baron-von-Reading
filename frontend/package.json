@@ -1,0 +1,21 @@
+{
+  "name": "baron-von-reading-frontend",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --write src"
+  },
+  "dependencies": {
+    "solid-js": "^1.8.0",
+    "@solidjs/router": "^0.13.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "vite-plugin-solid": "^2.10.0",
+    "typescript": "^5.4.0",
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0"
+  }
+}

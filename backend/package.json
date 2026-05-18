@@ -1,0 +1,14 @@
+{
+  "name": "baron-von-reading-backend",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write src"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0"
+  }
+}
