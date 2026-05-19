@@ -12,9 +12,9 @@ services:
       - "3000:3000"
     environment:
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
+      - DB_PATH=/app/data/db.sqlite
     volumes:
       - ./backend/data:/app/data
-      - ./backend/db.sqlite:/app/db.sqlite
 
   # tts-service is disabled for now — using browser SpeechSynthesis instead.
   # To re-enable XTTS: uncomment below, add `depends_on: [tts-service]` and
