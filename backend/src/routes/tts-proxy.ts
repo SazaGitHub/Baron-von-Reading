@@ -7,17 +7,35 @@ interface PhoneticRow {
   phonetic: string;
 }
 
+function escapeRegex(str: string): string {
+  const specials = [
+    ".",
+    "*",
+    "+",
+    "?",
+    "^",
+    "$",
+    "{",
+    "}",
+    "(",
+    ")",
+    "|",
+    "[",
+    "]",
+    "\\",
+  ];
+  let result = str;
+  for (const char of specials) {
+    result = result.split(char).join("\\" + char);
+  }
+  return result;
+}
+
 function applyPhoneticDict(text: string, dict: PhoneticRow[]): string {
   let result = text;
   for (const { word, phonetic } of dict) {
-    // Escape regex special chars and do whole-word replacement (case-insensitive)
-    const escaped = word
-      .split("")
-      .map((c) => {
-        if (/[.*+?^${}()|[\]\]/.test(c)) return "\\" + c;
-        return c;
-      })
-      .join("");
+    // Replace whole-word occurrences (case-insensitive)
+    const escaped = escapeRegex(word);
     const re = new RegExp(`\b${escaped}\b`, "gi");
     result = result.replace(re, phonetic);
   }
