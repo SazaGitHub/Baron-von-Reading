@@ -11,6 +11,7 @@ import {
   getBook,
   getProgress,
   patchProgress,
+  synthesize,
   getPhoneticDict,
   upsertPhonetic,
   deletePhonetic,
@@ -31,6 +32,7 @@ export default function ReaderPage() {
   const [playing, setPlaying] = createSignal(false);
   const [showSettings, setShowSettings] = createSignal(false);
   const [ttsError, setTtsError] = createSignal<string | null>(null);
+  const [useFallback, setUseFallback] = createSignal(false);
 
   // Phonetic dict state
   const [phonetic, { refetch: refetchPhonetic }] = createResource(getPhoneticDict);
@@ -70,12 +72,39 @@ export default function ReaderPage() {
     await patchProgress(fileId, clamped).catch(() => {});
   };
 
-  const playTts = () => {
+  const playTtsWithXtts = async () => {
+    if (playing() || !current()) return;
+    setTtsError(null);
+    setPlaying(true);
+    try {
+      const blob = await synthesize(current(), settings.speed);
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => {
+        setPlaying(false);
+        URL.revokeObjectURL(url);
+      };
+      audio.onerror = () => {
+        setPlaying(false);
+        setTtsError("Audio playback failed");
+        URL.revokeObjectURL(url);
+      };
+      await audio.play();
+    } catch (err) {
+      setPlaying(false);
+      setTtsError(err instanceof Error ? err.message : "XTTS failed. Using browser TTS fallback...");
+      // Fallback to browser SpeechSynthesis
+      setTimeout(() => playTtsWithBrowser(), 500);
+    }
+  };
+
+  const playTtsWithBrowser = () => {
     if (playing() || !current()) return;
     if (typeof window.speechSynthesis === "undefined") {
       setTtsError("Your browser does not support speech synthesis");
       return;
     }
+    setUseFallback(true);
     setTtsError(null);
     setPlaying(true);
     const text = applyPhonetic(current(), phonetic() ?? []);
@@ -91,8 +120,14 @@ export default function ReaderPage() {
   };
 
   const stopTts = () => {
-    window.speechSynthesis.cancel();
+    if (useFallback()) {
+      window.speechSynthesis.cancel();
+    }
     setPlaying(false);
+  };
+
+  const playTts = async () => {
+    await playTtsWithXtts();
   };
 
   const addPhonetic = async () => {

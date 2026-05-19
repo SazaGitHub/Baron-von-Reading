@@ -13,21 +13,20 @@ services:
     environment:
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
       - DB_PATH=/app/data/db.sqlite
+      - TTS_SERVICE_URL=http://tts-service:8001
     volumes:
       - ./backend/data:/app/data
+    depends_on:
+      - tts-service
 
-  # tts-service is disabled for now — using browser SpeechSynthesis instead.
-  # To re-enable XTTS: uncomment below, add `depends_on: [tts-service]` and
-  # `TTS_SERVICE_URL=http://tts-service:8001` to the backend service.
-  #
-  # tts-service:
-  #   build: ./tts-service
-  #   environment:
-  #     - NVIDIA_VISIBLE_DEVICES=all
-  #   deploy:
-  #     resources:
-  #       reservations:
-  #         devices:
-  #           - driver: nvidia
-  #             count: 1
-  #             capabilities: [gpu]
+  tts-service:
+    build: ./tts-service
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

@@ -125,3 +125,17 @@ export async function upsertPhonetic(word: string, phonetic: string): Promise<vo
 export async function deletePhonetic(word: string): Promise<void> {
   await apiFetch(`/phonetic-dict/${encodeURIComponent(word)}`, { method: "DELETE" });
 }
+
+export async function synthesize(text: string, speed: number): Promise<Blob> {
+  const t = token();
+  const res = await fetch("/api/tts/synthesize", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(t ? { Authorization: `Bearer ${t}` } : {}),
+    },
+    body: JSON.stringify({ text, speed }),
+  });
+  if (!res.ok) throw new Error("TTS synthesis failed");
+  return res.blob();
+}
