@@ -33,11 +33,26 @@ export default function ReaderPage() {
   const [showSettings, setShowSettings] = createSignal(false);
   const [ttsError, setTtsError] = createSignal<string | null>(null);
   const [useFallback, setUseFallback] = createSignal(false);
+  const [selectedVoice, setSelectedVoice] = createSignal<SpeechSynthesisVoice | null>(null);
+  const [availableVoices, setAvailableVoices] = createSignal<SpeechSynthesisVoice[]>([]);
 
   // Phonetic dict state
   const [phonetic, { refetch: refetchPhonetic }] = createResource(getPhoneticDict);
   const [newWord, setNewWord] = createSignal("");
   const [newPhonetic, setNewPhonetic] = createSignal("");
+
+  // Load available voices
+  createEffect(() => {
+    const updateVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      setAvailableVoices(voices);
+      if (!selectedVoice() && voices.length > 0) {
+        setSelectedVoice(voices[0]);
+      }
+    };
+    updateVoices();
+    window.speechSynthesis.onvoiceschanged = updateVoices;
+  });
 
   // Resume progress once both book and progress are loaded
   createEffect(() => {
@@ -63,21 +78,14 @@ export default function ReaderPage() {
   };
 
   const sentences = () => book()?.sentences ?? [];
-  const current = () => sentences()[sentenceIndex()] ?? "";
   const total = () => sentences().length;
 
-  const goTo = async (index: number) => {
-    const clamped = Math.max(0, Math.min(index, total() - 1));
-    setSentenceIndex(clamped);
-    await patchProgress(fileId, clamped).catch(() => {});
-  };
-
-  const playTtsWithXtts = async () => {
-    if (playing() || !current()) return;
+  const playTtsWithXtts = async (text: string) => {
+    if (playing()) return;
     setTtsError(null);
     setPlaying(true);
     try {
-      const blob = await synthesize(current(), settings.speed);
+      const blob = await synthesize(text, settings.speed);
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.onended = () => {
@@ -93,13 +101,12 @@ export default function ReaderPage() {
     } catch (err) {
       setPlaying(false);
       setTtsError(err instanceof Error ? err.message : "XTTS failed. Using browser TTS fallback...");
-      // Fallback to browser SpeechSynthesis
-      setTimeout(() => playTtsWithBrowser(), 500);
+      setTimeout(() => playTtsWithBrowser(text), 500);
     }
   };
 
-  const playTtsWithBrowser = () => {
-    if (playing() || !current()) return;
+  const playTtsWithBrowser = (text: string) => {
+    if (playing()) return;
     if (typeof window.speechSynthesis === "undefined") {
       setTtsError("Your browser does not support speech synthesis");
       return;
@@ -107,9 +114,12 @@ export default function ReaderPage() {
     setUseFallback(true);
     setTtsError(null);
     setPlaying(true);
-    const text = applyPhonetic(current(), phonetic() ?? []);
-    const utter = new SpeechSynthesisUtterance(text);
+    const processedText = applyPhonetic(text, phonetic() ?? []);
+    const utter = new SpeechSynthesisUtterance(processedText);
     utter.rate = settings.speed;
+    if (selectedVoice()) {
+      utter.voice = selectedVoice();
+    }
     utter.onend = () => setPlaying(false);
     utter.onerror = () => {
       setPlaying(false);
@@ -119,15 +129,15 @@ export default function ReaderPage() {
     window.speechSynthesis.speak(utter);
   };
 
+  const playTts = async (text: string) => {
+    await playTtsWithXtts(text);
+  };
+
   const stopTts = () => {
     if (useFallback()) {
       window.speechSynthesis.cancel();
     }
     setPlaying(false);
-  };
-
-  const playTts = async () => {
-    await playTtsWithXtts();
   };
 
   const addPhonetic = async () => {
@@ -145,9 +155,15 @@ export default function ReaderPage() {
     refetchPhonetic();
   };
 
+  const selectSentence = async (index: number) => {
+    setSentenceIndex(index);
+    await patchProgress(fileId, index).catch(() => {});
+  };
+
   const bgColor = () => (settings.theme === "dark" ? "#1a1a2e" : "#fafafa");
   const fgColor = () => (settings.theme === "dark" ? "#e0e0e0" : "#1a1a1a");
   const panelBg = () => (settings.theme === "dark" ? "#16213e" : "#fff");
+  const highlightBg = () => (settings.theme === "dark" ? "#0f3460" : "#e3f2fd");
 
   return (
     <div style={{ "min-height": "100vh", background: bgColor(), color: fgColor(), "font-family": "Georgia, serif", transition: "background 0.2s" }}>
@@ -212,7 +228,7 @@ export default function ReaderPage() {
             <label style={{ "font-size": "0.85rem", display: "block", "margin-bottom": "0.3rem" }}>Theme</label>
             <button
               onClick={async () => {
-                const s = { ...settings, theme: settings.theme === "dark" ? "light" as const : "dark" as const };
+                const s = { ...settings, theme: settings.theme === "dark" ? ("light" as const) : ("dark" as const) };
                 setSettings(s);
                 await putSettings(s).catch(() => {});
               }}
@@ -220,6 +236,23 @@ export default function ReaderPage() {
             >
               {settings.theme === "dark" ? "☀️ Light" : "🌙 Dark"}
             </button>
+          </div>
+
+          {/* Voice selection */}
+          <div>
+            <label style={{ "font-size": "0.85rem", display: "block", "margin-bottom": "0.3rem" }}>Voice</label>
+            <select
+              value={selectedVoice()?.name ?? ""}
+              onChange={(e) => {
+                const voice = availableVoices().find((v) => v.name === e.currentTarget.value);
+                if (voice) setSelectedVoice(voice);
+              }}
+              style={{ padding: "0.3rem 0.6rem", "border-radius": "4px", border: "1px solid #aaa", background: panelBg(), color: fgColor() }}
+            >
+              <For each={availableVoices()}>
+                {(voice) => <option value={voice.name}>{voice.name}</option>}
+              </For>
+            </select>
           </div>
 
           {/* Phonetic dictionary */}
@@ -250,11 +283,11 @@ export default function ReaderPage() {
             <div style={{ "max-height": "140px", "overflow-y": "auto" }}>
               <For each={phonetic() ?? []}>
                 {(entry: PhoneticEntry) => (
-                                    <div style={{ display: 'flex', 'justify-content': 'space-between', 'align-items': 'center', 'font-size': '0.85rem', padding: '0.2rem 0' }}>
+                  <div style={{ display: "flex", "justify-content": "space-between", "align-items": "center", "font-size": "0.85rem", padding: "0.2rem 0" }}>
                     <span><strong>{entry.word}</strong> → {entry.phonetic}</span>
                     <button
                       onClick={() => removePhonetic(entry.word)}
-                      style={{ background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer' }}
+                      style={{ background: "none", border: "none", color: "#e74c3c", cursor: "pointer" }}
                     >
                       ✕
                     </button>
@@ -266,52 +299,76 @@ export default function ReaderPage() {
         </div>
       </Show>
 
-      {/* Main reading area */}
-      <div style={{ 'max-width': '720px', margin: '0 auto', padding: '3rem 1.5rem', 'text-align': 'center' }}>
+      {/* Main reading area - Full text view */}
+      <div style={{ "max-width": "900px", margin: "0 auto", padding: "2rem 1.5rem" }}>
         <Show when={book.loading}>
           <p>Loading book…</p>
         </Show>
 
-        <Show when={!book.loading && total() > 0}>
-          <p style={{ 'font-size': '0.85rem', color: '#888', 'margin-bottom': '1.5rem' }}>
-            {sentenceIndex() + 1} / {total()}
-          </p>
+        <Show when={!book.loading && sentences().length > 0}>
+          {ttsError() && <p style={{ color: "#e74c3c", "font-size": "0.85rem", "margin-bottom": "1rem", "padding": "0.5rem", background: "rgba(231, 76, 60, 0.1)", "border-radius": "4px" }}>{ttsError()}</p>}
 
-          <p style={{ 'font-size': `${settings.fontSize}px`, 'line-height': '1.7', 'margin-bottom': '2.5rem', 'min-height': '6rem' }}>
-            {current()}
-          </p>
+          {/* Full text display with clickable sentences */}
+          <div
+            style={{
+              background: panelBg(),
+              padding: "1.5rem",
+              "border-radius": "8px",
+              "line-height": "1.8",
+              "font-size": `${settings.fontSize}px`,
+              "margin-bottom": "1.5rem",
+              "white-space": "pre-wrap",
+              "word-wrap": "break-word",
+            }}
+          >
+            <For each={sentences()}>
+              {(sentence, idx) => {
+                const isSelected = idx() === sentenceIndex();
+                return (
+                  <span
+                    onClick={() => selectSentence(idx())}
+                    style={{
+                      cursor: "pointer",
+                      padding: "0.1rem 0.2rem",
+                      background: isSelected ? highlightBg() : "transparent",
+                      "border-radius": isSelected ? "3px" : "0px",
+                      "transition": "all 0.15s",
+                    }}
+                    title="Click to read from here"
+                  >
+                    {sentence}{" "}
+                  </span>
+                );
+              }}
+            </For>
+          </div>
 
-          {ttsError() && <p style={{ color: '#e74c3c', 'font-size': '0.85rem', 'margin-bottom': '1rem' }}>{ttsError()}</p>}
-
-          {/* Controls */}
-          <div style={{ display: 'flex', 'justify-content': 'center', gap: '1rem', 'align-items': 'center' }}>
+          {/* Read & Control buttons */}
+          <div style={{ display: "flex", "justify-content": "center", gap: "0.8rem", "margin-top": "1rem" }}>
             <button
-              onClick={() => goTo(sentenceIndex() - 1)}
-              disabled={sentenceIndex() === 0}
-              style={{ padding: '0.6rem 1.2rem', 'border-radius': '8px', border: '1px solid #aaa', cursor: sentenceIndex() === 0 ? 'not-allowed' : 'pointer', background: panelBg(), color: fgColor(), 'font-size': '1.1rem' }}
+              onClick={playing() ? stopTts : () => playTts(sentences()[sentenceIndex()] || "")}
+              style={{
+                padding: "0.7rem 1.6rem",
+                "border-radius": "8px",
+                border: "none",
+                background: playing() ? "#888" : "#e94560",
+                color: "white",
+                cursor: "pointer",
+                "font-size": "1rem",
+              }}
             >
-              ◀ Prev
-            </button>
-
-            <button
-              onClick={playing() ? stopTts : playTts}
-              style={{ padding: '0.7rem 1.6rem', 'border-radius': '8px', border: 'none', background: playing() ? '#888' : '#e94560', color: 'white', cursor: 'pointer', 'font-size': '1.2rem' }}
-            >
-              {playing() ? '⏹ Stop' : '▶ Read'}
-            </button>
-
-            <button
-              onClick={() => goTo(sentenceIndex() + 1)}
-              disabled={sentenceIndex() >= total() - 1}
-              style={{ padding: '0.6rem 1.2rem', 'border-radius': '8px', border: '1px solid #aaa', cursor: sentenceIndex() >= total() - 1 ? 'not-allowed' : 'pointer', background: panelBg(), color: fgColor(), 'font-size': '1.1rem' }}
-            >
-              Next ▶
+              {playing() ? "⏹ Stop" : "▶ Read"}
             </button>
           </div>
+
+          {/* Progress info */}
+          <p style={{ "text-align": "center", color: "#888", "margin-top": "1rem", "font-size": "0.9rem" }}>
+            Reading from: Sentence {sentenceIndex() + 1} of {total()}
+          </p>
         </Show>
 
-        <Show when={!book.loading && total() === 0}>
-          <p style={{ color: '#888' }}>This book has no readable content.</p>
+        <Show when={!book.loading && sentences().length === 0}>
+          <p style={{ color: "#888" }}>This book has no readable content.</p>
         </Show>
       </div>
     </div>
