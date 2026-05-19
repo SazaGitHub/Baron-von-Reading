@@ -11,7 +11,6 @@ import {
   getBook,
   getProgress,
   patchProgress,
-  synthesize,
   getPhoneticDict,
   upsertPhonetic,
   deletePhonetic,
@@ -31,7 +30,6 @@ export default function ReaderPage() {
   const [sentenceIndex, setSentenceIndex] = createSignal(0);
   const [playing, setPlaying] = createSignal(false);
   const [showSettings, setShowSettings] = createSignal(false);
-  const [audioUrl, setAudioUrl] = createSignal<string | null>(null);
   const [ttsError, setTtsError] = createSignal<string | null>(null);
 
   // Phonetic dict state
@@ -47,11 +45,20 @@ export default function ReaderPage() {
     }
   });
 
-  // Cleanup audio URL on unmount
+  // Stop any in-progress speech on unmount
   onCleanup(() => {
-    const u = audioUrl();
-    if (u) URL.revokeObjectURL(u);
+    window.speechSynthesis.cancel();
   });
+
+  // Apply phonetic dictionary substitutions to text before speaking
+  const applyPhonetic = (text: string, dict: PhoneticEntry[]): string => {
+    let result = text;
+    for (const { word, phonetic } of dict) {
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      result = result.replace(new RegExp(`\\b${escaped}\\b`, "gi"), phonetic);
+    }
+    return result;
+  };
 
   const sentences = () => book()?.sentences ?? [];
   const current = () => sentences()[sentenceIndex()] ?? "";
@@ -63,29 +70,29 @@ export default function ReaderPage() {
     await patchProgress(fileId, clamped).catch(() => {});
   };
 
-  const playTts = async () => {
+  const playTts = () => {
     if (playing() || !current()) return;
+    if (typeof window.speechSynthesis === "undefined") {
+      setTtsError("Your browser does not support speech synthesis");
+      return;
+    }
     setTtsError(null);
     setPlaying(true);
-    try {
-      const blob = await synthesize(current(), settings.speed);
-      const url = URL.createObjectURL(blob);
-      const old = audioUrl();
-      if (old) URL.revokeObjectURL(old);
-      setAudioUrl(url);
-      const audio = new Audio(url);
-      audio.onended = () => {
-        setPlaying(false);
-      };
-      audio.onerror = () => {
-        setPlaying(false);
-        setTtsError("Audio playback failed");
-      };
-      await audio.play();
-    } catch (err) {
+    const text = applyPhonetic(current(), phonetic() ?? []);
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = settings.speed;
+    utter.onend = () => setPlaying(false);
+    utter.onerror = () => {
       setPlaying(false);
-      setTtsError(err instanceof Error ? err.message : "TTS failed");
-    }
+      setTtsError("Speech synthesis failed");
+    };
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
+  };
+
+  const stopTts = () => {
+    window.speechSynthesis.cancel();
+    setPlaying(false);
   };
 
   const addPhonetic = async () => {
@@ -252,11 +259,10 @@ export default function ReaderPage() {
             </button>
 
             <button
-              onClick={playTts}
-              disabled={playing()}
-              style={{ padding: '0.7rem 1.6rem', 'border-radius': '8px', border: 'none', background: playing() ? '#888' : '#e94560', color: 'white', cursor: playing() ? 'not-allowed' : 'pointer', 'font-size': '1.2rem' }}
+              onClick={playing() ? stopTts : playTts}
+              style={{ padding: '0.7rem 1.6rem', 'border-radius': '8px', border: 'none', background: playing() ? '#888' : '#e94560', color: 'white', cursor: 'pointer', 'font-size': '1.2rem' }}
             >
-              {playing() ? '🔊 Playing…' : '▶ Read'}
+              {playing() ? '⏹ Stop' : '▶ Read'}
             </button>
 
             <button

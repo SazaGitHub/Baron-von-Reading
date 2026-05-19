@@ -11,23 +11,23 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - JWT_SECRET=${JWT_SECRET}
-      - TTS_SERVICE_URL=http://tts-service:8001
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
     volumes:
       - ./backend/data:/app/data
       - ./backend/db.sqlite:/app/db.sqlite
-    depends_on:
-      - tts-service
 
-  tts-service:
-    build: ./tts-service
-    # NOT exposed externally — internal Docker network only
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+  # tts-service is disabled for now — using browser SpeechSynthesis instead.
+  # To re-enable XTTS: uncomment below, add `depends_on: [tts-service]` and
+  # `TTS_SERVICE_URL=http://tts-service:8001` to the backend service.
+  #
+  # tts-service:
+  #   build: ./tts-service
+  #   environment:
+  #     - NVIDIA_VISIBLE_DEVICES=all
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
