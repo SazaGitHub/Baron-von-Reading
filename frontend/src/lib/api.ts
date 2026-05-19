@@ -91,9 +91,9 @@ export async function deleteBook(fileId: string): Promise<void> {
   await apiFetch(`/books/${encodeURIComponent(fileId)}`, { method: "DELETE" });
 }
 
-export async function getBook(fileId: string): Promise<{ sentences: string[] }> {
+export async function getBook(fileId: string): Promise<{ paragraphs: string[] }> {
   const res = await apiFetch(`/books/${encodeURIComponent(fileId)}`);
-  return res.json() as Promise<{ sentences: string[] }>;
+  return res.json() as Promise<{ paragraphs: string[] }>;
 }
 
 export async function synthesize(text: string, speed: number): Promise<Blob> {

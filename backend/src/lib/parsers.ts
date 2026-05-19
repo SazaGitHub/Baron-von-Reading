@@ -1,21 +1,49 @@
 import pdfParse from "pdf-parse";
 import JSZip from "jszip";
 
-/** Split text into sentences on .!? followed by whitespace. */
-function splitSentences(text: string): string[] {
+/** Remove HTML/CSS tags and clean up text. */
+function stripHtml(html: string): string {
+  return html
+    // Remove style and script tags entirely
+    .replace(/<(style|script|noscript)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    // Remove HTML comments
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    // Remove HTML tags
+    .replace(/<[^>]+>/g, "\n")
+    // Decode HTML entities
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x[0-9a-f]+;/gi, " ")
+    .replace(/&[a-z]+;/gi, " ")
+    // Collapse multiple spaces
+    .replace(/\s+/g, " ")
+    // Remove leading/trailing whitespace from each line
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join("\n");
+}
+
+/** Split text into paragraphs (more readable than sentences). */
+function splitParagraphs(text: string): string[] {
   return text
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+    .split(/\n+/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0 && p.length > 20); // Skip very short lines (headers, etc.)
 }
 
 export function parseTxt(buffer: Buffer): string[] {
-  return splitSentences(buffer.toString("utf8"));
+  const text = buffer.toString("utf8");
+  return splitParagraphs(text);
 }
 
 export async function parsePdf(buffer: Buffer): Promise<string[]> {
   const data = await pdfParse(buffer);
-  return splitSentences(data.text);
+  return splitParagraphs(data.text);
 }
 
 export async function parseEpub(buffer: Buffer): Promise<string[]> {
@@ -40,7 +68,7 @@ export async function parseEpub(buffer: Buffer): Promise<string[]> {
   const manifestMatches = [...opfXml.matchAll(/<item[^>]+id="([^"]+)"[^>]+href="([^"]+)"/g)];
   const idToHref = new Map<string, string>(manifestMatches.map((m) => [m[1], m[2]]));
 
-  const sentences: string[] = [];
+  const paragraphs: string[] = [];
 
   for (const idref of spineMatches) {
     const href = idToHref.get(idref);
@@ -48,19 +76,9 @@ export async function parseEpub(buffer: Buffer): Promise<string[]> {
     const filePath = opfDir + href;
     const html = await zip.file(filePath)?.async("string");
     if (!html) continue;
-    // Strip HTML tags, decode basic entities
-    const text = html
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/\s+/g, " ")
-      .trim();
-    sentences.push(...splitSentences(text));
+    const text = stripHtml(html);
+    paragraphs.push(...splitParagraphs(text));
   }
 
-  return sentences;
+  return paragraphs;
 }

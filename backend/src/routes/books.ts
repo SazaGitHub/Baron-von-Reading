@@ -84,7 +84,7 @@ export async function handleBooks(req: Request, _userId: number): Promise<Respon
         { status: 415 }
       );
     }
-    return new Response(JSON.stringify({ sentences }), {
+    return new Response(JSON.stringify({ paragraphs: sentences }), {
       headers: { "Content-Type": "application/json" },
     });
   }

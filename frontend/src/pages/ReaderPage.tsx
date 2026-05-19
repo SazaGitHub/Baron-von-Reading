@@ -28,7 +28,7 @@ export default function ReaderPage() {
   const [book] = createResource(() => getBook(fileId));
   const [initialProgress] = createResource(() => getProgress(fileId));
 
-  const [sentenceIndex, setSentenceIndex] = createSignal(0);
+  const [pageIndex, setPageIndex] = createSignal(0);
   const [playing, setPlaying] = createSignal(false);
   const [showSettings, setShowSettings] = createSignal(false);
   const [ttsError, setTtsError] = createSignal<string | null>(null);
@@ -40,6 +40,9 @@ export default function ReaderPage() {
   const [phonetic, { refetch: refetchPhonetic }] = createResource(getPhoneticDict);
   const [newWord, setNewWord] = createSignal("");
   const [newPhonetic, setNewPhonetic] = createSignal("");
+
+  // Paragraphs per page
+  const PARAGRAPHS_PER_PAGE = 5;
 
   // Load available voices
   createEffect(() => {
@@ -58,7 +61,7 @@ export default function ReaderPage() {
   createEffect(() => {
     const p = initialProgress();
     if (p && book()) {
-      setSentenceIndex(p.sentenceIndex);
+      setPageIndex(Math.floor(p.sentenceIndex / PARAGRAPHS_PER_PAGE));
     }
   });
 
@@ -77,8 +80,13 @@ export default function ReaderPage() {
     return result;
   };
 
-  const sentences = () => book()?.sentences ?? [];
-  const total = () => sentences().length;
+  const paragraphs = () => book()?.paragraphs ?? [];
+  const totalParagraphs = () => paragraphs().length;
+  const totalPages = () => Math.ceil(totalParagraphs() / PARAGRAPHS_PER_PAGE);
+  const currentPageParagraphs = () => {
+    const start = pageIndex() * PARAGRAPHS_PER_PAGE;
+    return paragraphs().slice(start, start + PARAGRAPHS_PER_PAGE);
+  };
 
   const playTtsWithXtts = async (text: string) => {
     if (playing()) return;
@@ -155,15 +163,20 @@ export default function ReaderPage() {
     refetchPhonetic();
   };
 
-  const selectSentence = async (index: number) => {
-    setSentenceIndex(index);
-    await patchProgress(fileId, index).catch(() => {});
+  const goToPage = async (index: number) => {
+    const clamped = Math.max(0, Math.min(index, totalPages() - 1));
+    setPageIndex(clamped);
+    await patchProgress(fileId, clamped * PARAGRAPHS_PER_PAGE).catch(() => {});
+  };
+
+  const playCurrentPage = () => {
+    const text = currentPageParagraphs().join("\n\n");
+    if (text.trim()) playTts(text);
   };
 
   const bgColor = () => (settings.theme === "dark" ? "#1a1a2e" : "#fafafa");
   const fgColor = () => (settings.theme === "dark" ? "#e0e0e0" : "#1a1a1a");
   const panelBg = () => (settings.theme === "dark" ? "#16213e" : "#fff");
-  const highlightBg = () => (settings.theme === "dark" ? "#0f3460" : "#e3f2fd");
 
   return (
     <div style={{ "min-height": "100vh", background: bgColor(), color: fgColor(), "font-family": "Georgia, serif", transition: "background 0.2s" }}>
@@ -299,54 +312,48 @@ export default function ReaderPage() {
         </div>
       </Show>
 
-      {/* Main reading area - Full text view */}
+      {/* Main reading area - Paginated view */}
       <div style={{ "max-width": "900px", margin: "0 auto", padding: "2rem 1.5rem" }}>
         <Show when={book.loading}>
           <p>Loading book…</p>
         </Show>
 
-        <Show when={!book.loading && sentences().length > 0}>
+        <Show when={!book.loading && totalParagraphs() > 0}>
           {ttsError() && <p style={{ color: "#e74c3c", "font-size": "0.85rem", "margin-bottom": "1rem", "padding": "0.5rem", background: "rgba(231, 76, 60, 0.1)", "border-radius": "4px" }}>{ttsError()}</p>}
 
-          {/* Full text display with clickable sentences */}
+          {/* Page content */}
           <div
             style={{
               background: panelBg(),
-              padding: "1.5rem",
+              padding: "2rem",
               "border-radius": "8px",
-              "line-height": "1.8",
+              "line-height": "1.9",
               "font-size": `${settings.fontSize}px`,
               "margin-bottom": "1.5rem",
-              "white-space": "pre-wrap",
-              "word-wrap": "break-word",
+              "min-height": "300px",
             }}
           >
-            <For each={sentences()}>
-              {(sentence, idx) => {
-                const isSelected = idx() === sentenceIndex();
-                return (
-                  <span
-                    onClick={() => selectSentence(idx())}
-                    style={{
-                      cursor: "pointer",
-                      padding: "0.1rem 0.2rem",
-                      background: isSelected ? highlightBg() : "transparent",
-                      "border-radius": isSelected ? "3px" : "0px",
-                      "transition": "all 0.15s",
-                    }}
-                    title="Click to read from here"
-                  >
-                    {sentence}{" "}
-                  </span>
-                );
-              }}
+            <For each={currentPageParagraphs()}>
+              {(para) => (
+                <p style={{ "margin-bottom": "1.5rem", "text-align": "justify" }}>
+                  {para}
+                </p>
+              )}
             </For>
           </div>
 
-          {/* Read & Control buttons */}
-          <div style={{ display: "flex", "justify-content": "center", gap: "0.8rem", "margin-top": "1rem" }}>
+          {/* Controls */}
+          <div style={{ display: "flex", "justify-content": "space-between", "align-items": "center", gap: "1rem", "margin-top": "1.5rem" }}>
             <button
-              onClick={playing() ? stopTts : () => playTts(sentences()[sentenceIndex()] || "")}
+              onClick={() => goToPage(pageIndex() - 1)}
+              disabled={pageIndex() === 0}
+              style={{ padding: "0.6rem 1.2rem", "border-radius": "8px", border: "1px solid #aaa", cursor: pageIndex() === 0 ? "not-allowed" : "pointer", background: panelBg(), color: fgColor() }}
+            >
+              ← Prev
+            </button>
+
+            <button
+              onClick={playing() ? stopTts : playCurrentPage}
               style={{
                 padding: "0.7rem 1.6rem",
                 "border-radius": "8px",
@@ -357,17 +364,25 @@ export default function ReaderPage() {
                 "font-size": "1rem",
               }}
             >
-              {playing() ? "⏹ Stop" : "▶ Read"}
+              {playing() ? "⏹ Stop" : "▶ Read Page"}
+            </button>
+
+            <button
+              onClick={() => goToPage(pageIndex() + 1)}
+              disabled={pageIndex() >= totalPages() - 1}
+              style={{ padding: "0.6rem 1.2rem", "border-radius": "8px", border: "1px solid #aaa", cursor: pageIndex() >= totalPages() - 1 ? "not-allowed" : "pointer", background: panelBg(), color: fgColor() }}
+            >
+              Next →
             </button>
           </div>
 
-          {/* Progress info */}
+          {/* Page info */}
           <p style={{ "text-align": "center", color: "#888", "margin-top": "1rem", "font-size": "0.9rem" }}>
-            Reading from: Sentence {sentenceIndex() + 1} of {total()}
+            Page {pageIndex() + 1} of {totalPages()}
           </p>
         </Show>
 
-        <Show when={!book.loading && sentences().length === 0}>
+        <Show when={!book.loading && totalParagraphs() === 0}>
           <p style={{ color: "#888" }}>This book has no readable content.</p>
         </Show>
       </div>
