@@ -2,8 +2,10 @@ import { token } from "./token";
 
 export interface Settings {
   speed: number;
-  theme: "light" | "dark";
+  theme: "light" | "dark" | "amoled";
   fontSize: number;
+  voice?: string;
+  ttsEngine?: "browser" | "kokoro";
 }
 
 export interface Progress {
@@ -47,10 +49,16 @@ export async function login(username: string, password: string): Promise<{ token
   return res.json() as Promise<{ token: string }>;
 }
 
-export async function register(username: string, password: string): Promise<void> {
+export async function getAuthStatus(): Promise<{ registrationSecretRequired: boolean }> {
+  const res = await fetch("/api/auth/status");
+  if (!res.ok) return { registrationSecretRequired: false };
+  return res.json() as Promise<{ registrationSecretRequired: boolean }>;
+}
+
+export async function register(username: string, password: string, secret?: string): Promise<void> {
   await apiFetch("/auth/register", {
     method: "POST",
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, secret }),
   });
 }
 
@@ -91,12 +99,44 @@ export async function deleteBook(fileId: string): Promise<void> {
   await apiFetch(`/books/${encodeURIComponent(fileId)}`, { method: "DELETE" });
 }
 
-export async function getBook(fileId: string): Promise<{ paragraphs: string[] }> {
-  const res = await apiFetch(`/books/${encodeURIComponent(fileId)}`);
-  return res.json() as Promise<{ paragraphs: string[] }>;
+export interface BookChapterMeta {
+  title: string;
+  id: string;
 }
 
-export async function synthesize(text: string, speed: number): Promise<Blob> {
+export interface BookStructure {
+  chapters: BookChapterMeta[];
+}
+
+export interface BookChapter {
+  title: string;
+  paragraphs: string[];
+  id: string;
+}
+
+export async function getBook(fileId: string): Promise<BookStructure> {
+  const res = await apiFetch(`/books/${encodeURIComponent(fileId)}`);
+  return res.json() as Promise<BookStructure>;
+}
+
+export async function getChapter(fileId: string, index: number): Promise<BookChapter> {
+  const res = await apiFetch(`/books/${encodeURIComponent(fileId)}/chapters/${index}`);
+  const data = await res.json() as BookChapter;
+  const t = token();
+  if (t) {
+    // Inject token into image URLs so the browser can load them
+    // This regex targets the src attribute specifically and handles both " and ' quotes.
+    data.paragraphs = data.paragraphs.map(p => 
+      p.replace(/(<img\s[^>]*src=["'])(\/api\/books\/[^"'>]+\/images\/[^"'>]+)(["'])/g, (_match, p1, p2, p3) => {
+        const separator = p2.includes('?') ? '&' : '?';
+        return `${p1}${p2}${separator}token=${t}${p3}`;
+      })
+    );
+  }
+  return data;
+}
+
+export async function synthesize(text: string, speed: number, voice?: string): Promise<Blob> {
   const t = token();
   const res = await fetch("/api/tts/synthesize", {
     method: "POST",
@@ -104,10 +144,21 @@ export async function synthesize(text: string, speed: number): Promise<Blob> {
       "Content-Type": "application/json",
       ...(t ? { Authorization: `Bearer ${t}` } : {}),
     },
-    body: JSON.stringify({ text, speed }),
+    body: JSON.stringify({ text, speed, speaker_wav: voice }),
   });
   if (!res.ok) throw new Error("TTS synthesis failed");
   return res.blob();
+}
+
+export async function getTtsStatus(): Promise<{ status: string; progress: number }> {
+  const t = token();
+  const res = await fetch("/api/tts/status", {
+    headers: {
+      ...(t ? { Authorization: `Bearer ${t}` } : {}),
+    },
+  });
+  if (!res.ok) return { status: "offline", progress: 0 };
+  return res.json() as Promise<{ status: string; progress: number }>;
 }
 
 export async function getPhoneticDict(): Promise<PhoneticEntry[]> {

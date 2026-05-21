@@ -36,13 +36,27 @@ export async function signJwt(payload: Record<string, unknown>): Promise<string>
 }
 
 export async function authMiddleware(req: Request): Promise<{ userId: number }> {
+  let jwt: string | null = null;
+  
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
+  if (authHeader?.startsWith("Bearer ")) {
+    jwt = authHeader.slice(7);
+    console.log("Found JWT in Authorization header");
+  } else {
+    // Try query parameter for images/assets
+    const url = new URL(req.url);
+    jwt = url.searchParams.get("token");
+    if (jwt) console.log("Found JWT in query parameter");
+  }
+
+  if (!jwt) {
+    console.warn(`No JWT found for ${req.url}`);
     throw new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
-  const jwt = authHeader.slice(7);
+
   const parts = jwt.split(".");
   if (parts.length !== 3) {
+    console.error(`Invalid JWT format: ${jwt.substring(0, 10)}...`);
     throw new Response(JSON.stringify({ error: "Invalid token" }), { status: 401 });
   }
   const [header, body, signature] = parts as [string, string, string];
@@ -60,10 +74,12 @@ export async function authMiddleware(req: Request): Promise<{ userId: number }> 
     new TextEncoder().encode(`${header}.${body}`)
   );
   if (!valid) {
+    console.error("JWT signature verification failed");
     throw new Response(JSON.stringify({ error: "Invalid token" }), { status: 401 });
   }
   const payload = JSON.parse(new TextDecoder().decode(base64urlDecode(body))) as Record<string, unknown>;
   if (typeof payload["sub"] !== "number") {
+    console.error("Invalid JWT sub payload type");
     throw new Response(JSON.stringify({ error: "Invalid token payload" }), { status: 401 });
   }
   return { userId: payload["sub"] };

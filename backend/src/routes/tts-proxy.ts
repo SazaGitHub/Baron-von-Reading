@@ -33,11 +33,18 @@ function escapeRegex(str: string): string {
 
 function applyPhoneticDict(text: string, dict: PhoneticRow[]): string {
   let result = text;
-  for (const { word, phonetic } of dict) {
-    // Replace whole-word occurrences (case-insensitive)
+  // Sort by length descending to match longer phrases first
+  const sortedDict = [...dict].sort((a, b) => b.word.length - a.word.length);
+  
+  for (const { word, phonetic } of sortedDict) {
+    if (!word.trim()) continue;
     const escaped = escapeRegex(word);
-    const re = new RegExp(`\b${escaped}\b`, "gi");
-    result = result.replace(re, phonetic);
+    const re = new RegExp(`(?<![a-zA-Z0-9'])${escaped}(?![a-zA-Z0-9'])`, "gi");
+    const nextResult = result.replace(re, phonetic);
+    if (nextResult !== result) {
+      console.log(`[Phonetic] Replaced "${word}" with "${phonetic}"`);
+    }
+    result = nextResult;
   }
   return result;
 }
@@ -45,14 +52,24 @@ function applyPhoneticDict(text: string, dict: PhoneticRow[]): string {
 export async function handleTtsProxy(req: Request, userId: number): Promise<Response> {
   const url = new URL(req.url);
 
+  if (req.method === "GET" && url.pathname === "/api/tts/status") {
+    const upstream = await fetch(`${TTS_SERVICE_URL}/status`);
+    const data = await upstream.json();
+    return new Response(JSON.stringify(data), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   if (req.method === "POST" && url.pathname === "/api/tts/synthesize") {
     const body = (await req.json()) as { text: string; speed: number; speaker_wav?: string };
 
-    // Apply user's phonetic dictionary
+    // Apply user's phonetic dictionary (Backend fallback)
     const dict = db
       .query<PhoneticRow, [number]>("SELECT word, phonetic FROM phonetic_dict WHERE user_id = ?")
       .all(userId);
+    
     const processedText = applyPhoneticDict(body.text, dict);
+    console.log(`[TTS Proxy] Processing request: "${body.text.substring(0, 30)}..." -> "${processedText.substring(0, 30)}..."`);
 
     const upstream = await fetch(`${TTS_SERVICE_URL}/synthesize`, {
       method: "POST",

@@ -193,10 +193,22 @@ tts-service (FastAPI + XTTS, port 8001)
 - The SolidJS `settingsStore` is the in-memory representation; it is hydrated from the API on startup and flushed on every change.
 - Import/export: serialize the settings JSON to a file (`settings.json`). Import validates the schema before calling `PUT /settings`.
 
-### File Parsing
-- The backend parses uploaded files into a flat array of sentences server-side before storing.
-- Sentence splitting uses a simple rule-based approach (punctuation + length cap) — keep it simple.
-- Parsed sentence arrays are cached to avoid re-parsing on every read.
+### File Parsing & Pagination
+- The backend parses uploaded files into a nested structure: `Chapter[]`.
+- **Chapter detection**:
+  - **EPUB**: Each spine document is a chapter.
+  - **PDF & TXT**: Treated as a single-chapter book.
+- **Paragraph detection**:
+  - **EPUB/HTML files**: Extracted from block-level elements (`<p>`, `<li>`, `<blockquote>`, `<h1-h6>`, `<pre>`).
+  - **Scene Breaks**: `<hr>` tags are preserved as `<hr />` markers for styling.
+  - **Headings**: Preserved with level markers (e.g., `[H1]`) for centering and styling.
+- **Frontend pagination**: Chapters are displayed separately. Long chapters are paginated (10 paragraphs per page).
+- **Progress tracking**: Progress is saved as a composite index: `chapterIndex * 1000 + pageIndex`, stored in the `sentenceIndex` column.
+
+### Reading Experience
+- **Book-style formatting**: Paragraphs use first-line indents (1.5em) and no vertical spacing, except for the first paragraph of a chapter/section.
+- **Navigation**: Prev/Next buttons navigate between pages and automatically cross chapter boundaries.
+- **TTS**: Reads one page at a time. Markers like `[H1]` and `<hr />` are filtered out or paused during speech.
 
 ### XTTS / TTS Service
 - The TTS service exposes `POST /synthesize` with `{ text, speed, phonetic_dict? }`.

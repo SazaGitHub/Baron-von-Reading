@@ -1,17 +1,13 @@
 services:
-  frontend:
-    build: ./frontend
-    ports:
-      - "5173:80"
-    depends_on:
-      - backend
-
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: Dockerfile.unified
     ports:
       - "3000:3000"
     environment:
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
+      - REGISTRATION_SECRET=${REGISTRATION_SECRET:-}
       - DB_PATH=/app/data/db.sqlite
       - TTS_SERVICE_URL=http://tts-service:8001
     volumes:
@@ -23,6 +19,9 @@ services:
     build: ./tts-service
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      - COQUI_TOS_AGREED=1
+    volumes:
+      - tts_models:/tmp/tts_models
     deploy:
       resources:
         reservations:
@@ -30,3 +29,6 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
+volumes:
+  tts_models:

@@ -1,8 +1,42 @@
+# Dependencies
 node_modules/
-dist/
-.env
-*.sqlite
-backend/data/
-__pycache__/
 .venv/
+__pycache__/
 *.pyc
+
+# Build outputs
+dist/
+public/assets/
+!.gitkeep
+
+# Environment and Secrets
+.env
+.env.*
+!.env.example
+
+# Databases
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# User Data (Books, Phonetics, etc.)
+backend/data/
+data/
+*.epub
+*.pdf
+*.txt
+*.wav
+*.mp3
+
+# Logs
+*.log
+logs/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Security Analysis
+.gemini_security/

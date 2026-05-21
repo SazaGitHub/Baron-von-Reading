@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Too Large - Baron von Reading</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #0f172a;
+            color: #f1f5f9;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        .container {
+            text-align: center;
+            background: #1e293b;
+            padding: 3rem;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            border: 1px solid #334155;
+            max-width: 450px;
+            width: 90%;
+        }
+        h1 {
+            font-size: 4rem;
+            margin: 0;
+            color: #38bdf8;
+            opacity: 0.9;
+        }
+        h2 {
+            font-size: 1.5rem;
+            margin: 1rem 0;
+            font-weight: 700;
+        }
+        p {
+            color: #94a3b8;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+        }
+        .btn {
+            display: inline-block;
+            padding: 0.8rem 2rem;
+            background: #38bdf8;
+            color: #0f172a;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 700;
+            transition: transform 0.2s, background 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            background: #7dd3fc;
+        }
+        .icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">📁⛔</div>
+        <h1>413</h1>
+        <h2>File Too Large</h2>
+        <p>The book you're trying to upload exceeds our 5GB limit. Please try a smaller file or split the document.</p>
+        <a href="/" class="btn">Back to Library</a>
+    </div>
+</body>
+</html>

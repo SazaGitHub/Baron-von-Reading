@@ -28,8 +28,21 @@ export async function handleAuth(req: Request): Promise<Response> {
     });
   }
 
+  if (req.method === "GET" && url.pathname === "/api/auth/status") {
+    const requiredSecret = process.env["REGISTRATION_SECRET"];
+    return new Response(JSON.stringify({ registrationSecretRequired: !!requiredSecret }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   if (req.method === "POST" && url.pathname === "/api/auth/register") {
-    const body = (await req.json()) as { username: string; password: string };
+    const body = (await req.json()) as { username: string; password: string; secret?: string };
+    
+    const requiredSecret = process.env["REGISTRATION_SECRET"];
+    if (requiredSecret && body.secret !== requiredSecret) {
+      return new Response(JSON.stringify({ error: "Invalid registration secret" }), { status: 403 });
+    }
+
     const hash = await Bun.password.hash(body.password);
     try {
       db.run("INSERT INTO users (username, password_hash) VALUES (?, ?)", [body.username, hash]);
