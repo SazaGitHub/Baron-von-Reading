@@ -9,6 +9,7 @@ dependencies = [
   "onnxruntime-gpu>=1.18.0",
   "soundfile>=0.12.1",
   "requests>=2.31.0",
+  "misaki[en,he,ja,ko,vi,zh]",
 ]
 
 [tool.uv]

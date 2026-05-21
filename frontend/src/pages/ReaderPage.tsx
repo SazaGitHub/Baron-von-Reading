@@ -444,10 +444,82 @@ export default function ReaderPage() {
                   <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>Kokoro Voice:</label>
                   <select value={settings.voice || ""} onChange={async (e) => { const v = e.currentTarget.value; const s = { ...settings, voice: v }; setSettings(s); await putSettings(s).catch(() => {}); audioCache.clear(); clearTtsCache().catch(() => {}); }} style={{ padding: "0.5rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}`, background: panelBg(), color: fgColor() }}>
                     <option value="">Default (Sarah)</option>
-                    <optgroup label="American (Female)"><option value="af_sarah">Sarah</option><option value="af_heart">Heart</option><option value="af_nicole">Nicole</option><option value="af_sky">Sky</option></optgroup>
-                    <optgroup label="American (Male)"><option value="am_adam">Adam</option><option value="am_michael">Michael</option></optgroup>
-                    <optgroup label="British (Female)"><option value="bf_emma">Emma</option><option value="bf_isabella">Isabella</option></optgroup>
-                    <optgroup label="British (Male)"><option value="bm_george">George</option><option value="bm_lewis">Lewis</option></optgroup>
+                    <optgroup label="American (Female)">
+                      <option value="af_sarah">Sarah</option>
+                      <option value="af_heart">Heart</option>
+                      <option value="af_alloy">Alloy</option>
+                      <option value="af_aoede">Aoede</option>
+                      <option value="af_bella">Bella</option>
+                      <option value="af_jessica">Jessica</option>
+                      <option value="af_kore">Kore</option>
+                      <option value="af_nicole">Nicole</option>
+                      <option value="af_nova">Nova</option>
+                      <option value="af_river">River</option>
+                      <option value="af_sky">Sky</option>
+                    </optgroup>
+                    <optgroup label="American (Male)">
+                      <option value="am_adam">Adam</option>
+                      <option value="am_echo">Echo</option>
+                      <option value="am_eric">Eric</option>
+                      <option value="am_fenrir">Fenrir</option>
+                      <option value="am_liam">Liam</option>
+                      <option value="am_michael">Michael</option>
+                      <option value="am_onyx">Onyx</option>
+                      <option value="am_puck">Puck</option>
+                      <option value="am_santa">Santa</option>
+                    </optgroup>
+                    <optgroup label="British (Female)">
+                      <option value="bf_alice">Alice</option>
+                      <option value="bf_emma">Emma</option>
+                      <option value="bf_isabella">Isabella</option>
+                      <option value="bf_lily">Lily</option>
+                    </optgroup>
+                    <optgroup label="British (Male)">
+                      <option value="bm_daniel">Daniel</option>
+                      <option value="bm_fable">Fable</option>
+                      <option value="bm_george">George</option>
+                      <option value="bm_lewis">Lewis</option>
+                    </optgroup>
+                    <optgroup label="Japanese">
+                      <option value="jf_alpha">Alpha (F)</option>
+                      <option value="jf_gongitsune">Gongitsune (F)</option>
+                      <option value="jf_nezumi">Nezumi (F)</option>
+                      <option value="jf_tebukuro">Tebukuro (F)</option>
+                      <option value="jm_kumo">Kumo (M)</option>
+                    </optgroup>
+                    <optgroup label="Mandarin Chinese">
+                      <option value="zf_xiaobei">Xiaobei (F)</option>
+                      <option value="zf_xiaoni">Xiaoni (F)</option>
+                      <option value="zf_xiaoxiao">Xiaoxiao (F)</option>
+                      <option value="zf_xiaoyi">Xiaoyi (F)</option>
+                      <option value="zm_yunjian">Yunjian (M)</option>
+                      <option value="zm_yunxi">Yunxi (M)</option>
+                      <option value="zm_yunxia">Yunxia (M)</option>
+                      <option value="zm_yunyang">Yunyang (M)</option>
+                    </optgroup>
+                    <optgroup label="Spanish">
+                      <option value="ef_dora">Dora (F)</option>
+                      <option value="em_alex">Alex (M)</option>
+                      <option value="em_santa">Santa (M)</option>
+                    </optgroup>
+                    <optgroup label="French">
+                      <option value="ff_siwis">Siwis (F)</option>
+                    </optgroup>
+                    <optgroup label="Hindi">
+                      <option value="hf_alpha">Alpha (F)</option>
+                      <option value="hf_beta">Beta (F)</option>
+                      <option value="hm_omega">Omega (M)</option>
+                      <option value="hm_psi">Psi (M)</option>
+                    </optgroup>
+                    <optgroup label="Italian">
+                      <option value="if_sara">Sara (F)</option>
+                      <option value="im_nicola">Nicola (M)</option>
+                    </optgroup>
+                    <optgroup label="Brazilian Portuguese">
+                      <option value="pf_dora">Dora (F)</option>
+                      <option value="pm_alex">Alex (M)</option>
+                      <option value="pm_santa">Santa (M)</option>
+                    </optgroup>
                   </select>
                 </div>
               </Show>

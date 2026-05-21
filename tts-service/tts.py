@@ -90,7 +90,23 @@ async def synthesize(text: str, speed: float, speaker: str | None = None) -> byt
         # Kokoro uses voice names like 'af_heart', 'am_adam', etc.
         voice = speaker if speaker else "af_sarah"
         
-        print(f"[TTS] Synthesizing: '{text[:50]}...' with voice {voice} at speed {speed}")
+        # Determine language from voice prefix
+        # a: American English, b: British English, j: Japanese, z: Chinese,
+        # e: Spanish, f: French, h: Hindi, i: Italian, p: Portuguese
+        lang_map = {
+            'a': 'en-us',
+            'b': 'en-gb',
+            'j': 'ja',
+            'z': 'zh',
+            'e': 'es',
+            'f': 'fr-fr',
+            'h': 'hi',
+            'i': 'it',
+            'p': 'pt-br'
+        }
+        lang = lang_map.get(voice[0], 'en-us') if voice else 'en-us'
+        
+        print(f"[TTS] Synthesizing: '{text[:50]}...' with voice {voice} ({lang}) at speed {speed}")
         
         start_time = time.time()
         samples, sample_rate = await asyncio.get_event_loop().run_in_executor(
@@ -99,7 +115,7 @@ async def synthesize(text: str, speed: float, speaker: str | None = None) -> byt
                 text,
                 voice=voice,
                 speed=speed,
-                lang="en-us"
+                lang=lang
             )
         )
         end_time = time.time()
