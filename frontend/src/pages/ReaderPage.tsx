@@ -120,7 +120,7 @@ export default function ReaderPage() {
 
   const fetchAudio = async (text: string): Promise<Blob> => {
     if (settings.ttsEngine === "browser") throw new Error("Using browser engine");
-    const cacheKey = `${text}|${settings.speed}|${settings.voice || "af_sarah"}`; 
+    const cacheKey = `${text}|${settings.speed}|${settings.voice || "Vivian"}`; 
     const cached = audioCache.get(cacheKey);
     if (cached) return await cached;
     const persistent = await getCachedAudio(cacheKey).catch(() => null);
@@ -407,14 +407,14 @@ export default function ReaderPage() {
             <button onClick={() => navigate("/")} style={{ background: "none", border: "none", cursor: "pointer", "font-size": "1rem", color: accentColor(), "font-weight": "600" }}>Library</button>
             <span style={{ flex: 1, "font-size": "0.9rem", opacity: 0.6, overflow: "hidden", "white-space": "nowrap", "text-overflow": "ellipsis" }}>
               {fileId}
-              <Show when={ttsStatus() && ttsStatus()?.status !== "ready" && settings.ttsEngine === "kokoro"}>
+              <Show when={ttsStatus() && ttsStatus()?.status !== "ready" && settings.ttsEngine === "qwentts"}>
                 <span style={{ "margin-left": "1rem", color: accentColor(), "font-weight": "600", "font-size": "0.8rem", background: "rgba(56, 189, 248, 0.1)", padding: "0.2rem 0.6rem", "border-radius": "10px" }}>
-                  {ttsStatus()?.status === "downloading" ? `📥 Downloading Kokoro: ${ttsStatus()?.progress}%` : "⚙️ Finalizing Kokoro..."}
+                  {ttsStatus()?.status === "downloading" ? `📥 Loading Qwen: ${ttsStatus()?.progress}%` : "⚙️ Finalizing Qwen..."}
                 </span>
               </Show>
             </span>
             <button onClick={() => setShowSettings(!showSettings())} style={{ background: "none", border: "none", cursor: "pointer", "font-size": "1.3rem", opacity: 0.8 }}>⚙️</button>
-            <Show when={ttsStatus() && ttsStatus()?.status !== "ready" && settings.ttsEngine === "kokoro"}>
+            <Show when={ttsStatus() && ttsStatus()?.status !== "ready" && settings.ttsEngine === "qwentts"}>
               <div style={{ position: "absolute", bottom: "-1px", left: 0, height: "2px", background: accentColor(), width: `${ttsStatus()?.progress}%`, transition: "width 0.5s ease", "z-index": 10 }}></div>
             </Show>
           </div>
@@ -436,18 +436,18 @@ export default function ReaderPage() {
                 <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>TTS Engine:</label>
                 <div style={{ display: "flex", gap: "0.4rem", background: bgColor(), padding: "0.2rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}` }}>
                   <button onClick={async () => { const s = { ...settings, ttsEngine: "browser" as const }; setSettings(s); await putSettings(s).catch(() => {}); stopTts(); }} style={{ flex: 1, padding: "0.4rem 0.8rem", border: "none", "border-radius": "6px", background: (!settings.ttsEngine || settings.ttsEngine === "browser") ? accentColor() : "transparent", color: (!settings.ttsEngine || settings.ttsEngine === "browser") ? "#0f172a" : fgColor(), cursor: "pointer", "font-size": "0.85rem", "font-weight": "600" }}>Browser</button>
-                  <button onClick={async () => { const s = { ...settings, ttsEngine: "kokoro" as const }; setSettings(s); await putSettings(s).catch(() => {}); stopTts(); }} style={{ flex: 1, padding: "0.4rem 0.8rem", border: "none", "border-radius": "6px", background: settings.ttsEngine === "kokoro" ? accentColor() : "transparent", color: settings.ttsEngine === "kokoro" ? "#0f172a" : fgColor(), cursor: "pointer", "font-size": "0.85rem", "font-weight": "600" }}>Kokoro</button>
+                  <button onClick={async () => { const s = { ...settings, ttsEngine: "qwentts" as const }; setSettings(s); await putSettings(s).catch(() => {}); stopTts(); }} style={{ flex: 1, padding: "0.4rem 0.8rem", border: "none", "border-radius": "6px", background: settings.ttsEngine === "qwentts" ? accentColor() : "transparent", color: settings.ttsEngine === "qwentts" ? "#0f172a" : fgColor(), cursor: "pointer", "font-size": "0.85rem", "font-weight": "600" }}>Qwen</button>
                 </div>
               </div>
-              <Show when={settings.ttsEngine === "kokoro"}>
+              <Show when={settings.ttsEngine === "qwentts"}>
                 <div>
-                  <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>Kokoro Voice:</label>
+                  <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>Qwen Voice:</label>
                   <select value={settings.voice || ""} onChange={async (e) => { const v = e.currentTarget.value; const s = { ...settings, voice: v }; setSettings(s); await putSettings(s).catch(() => {}); audioCache.clear(); clearTtsCache().catch(() => {}); }} style={{ padding: "0.5rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}`, background: panelBg(), color: fgColor() }}>
-                    <option value="">Default (Sarah)</option>
-                    <optgroup label="American (Female)"><option value="af_sarah">Sarah</option><option value="af_heart">Heart</option><option value="af_nicole">Nicole</option><option value="af_sky">Sky</option></optgroup>
-                    <optgroup label="American (Male)"><option value="am_adam">Adam</option><option value="am_michael">Michael</option></optgroup>
-                    <optgroup label="British (Female)"><option value="bf_emma">Emma</option><option value="bf_isabella">Isabella</option></optgroup>
-                    <optgroup label="British (Male)"><option value="bm_george">George</option><option value="bm_lewis">Lewis</option></optgroup>
+                    <option value="">Default (Ryan)</option>
+                    <option value="Ryan">Ryan (Male)</option>
+                    <option value="Aiden">Aiden (Male)</option>
+                    <option value="Vivian">Vivian (Female)</option>
+                    <option value="Serena">Serena (Female)</option>
                   </select>
                 </div>
               </Show>

@@ -1,114 +1,139 @@
-"""Kokoro TTS synthesis wrapper. Model loaded on first request."""
+"""Qwen TTS synthesis wrapper. Model loaded on startup."""
 
 import asyncio
-import os
-from pathlib import Path
 import io
 import time
+import os
+import logging
+from pathlib import Path
 
-import requests
+import torch
 import soundfile as sf
-from kokoro_onnx import Kokoro
+import librosa
+import numpy as np
+from qwen_tts import Qwen3TTSModel
 
-# Model is loaded lazily on first request, not at module import time.
-_kokoro: Kokoro | None = None
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("TTS")
+
+# Model is loaded lazily on first request or via explicit preload
+_model: Qwen3TTSModel | None = None
 _is_loading = False
-_download_progress = 0
+_load_start_time = 0
 
-MODEL_DIR = Path("/tmp/tts_models/kokoro")
-MODEL_PATH = MODEL_DIR / "kokoro-v1.0.onnx"
-VOICES_PATH = MODEL_DIR / "voices-v1.0.bin"
-
-# URLs for model and voices (v1.0)
-MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
-VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
+# Use CustomVoice variant for preset speakers like Ryan/Aiden
+MODEL_ID = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
 
 def get_status() -> dict:
     """Return the current status of the model."""
-    global _kokoro, _is_loading, _download_progress
-    if _kokoro is not None:
+    global _model, _is_loading
+    if _model is not None:
         return {"status": "ready", "progress": 100}
     
     if _is_loading:
-        return {"status": "downloading", "progress": _download_progress}
+        elapsed = time.time() - _load_start_time
+        # Fake progress for user feedback
+        progress = min(95, int((elapsed / 60) * 100)) 
+        return {"status": "downloading", "progress": progress}
     
-    if not MODEL_PATH.exists() or not VOICES_PATH.exists():
-        return {"status": "not_started", "progress": 0}
+    return {"status": "not_started", "progress": 0}
 
-    return {"status": "ready", "progress": 100}
+async def ensure_model_loaded() -> Qwen3TTSModel:
+    """Load Qwen model if not already loaded."""
+    global _model, _is_loading, _load_start_time
+    if _model is None:
+        if _is_loading:
+            # Wait for already in-progress load
+            while _is_loading:
+                await asyncio.sleep(1)
+            return _model
 
-def _download_file(url: str, dest: Path):
-    global _download_progress
-    print(f"[TTS] Downloading {url} to {dest}...")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-    
-    total_size = int(response.headers.get('content-length', 0))
-    downloaded = 0
-    
-    with open(dest, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
-                downloaded += len(chunk)
-                if total_size > 0:
-                    _download_progress = int((downloaded / total_size) * 100)
-
-async def _ensure_model_loaded() -> Kokoro:
-    """Load Kokoro model if not already loaded."""
-    global _kokoro, _is_loading, _download_progress
-    if _kokoro is None:
         _is_loading = True
+        _load_start_time = time.time()
         try:
-            if not MODEL_PATH.exists():
-                _download_progress = 0
-                await asyncio.get_event_loop().run_in_executor(None, _download_file, MODEL_URL, MODEL_PATH)
-            if not VOICES_PATH.exists():
-                _download_progress = 0
-                await asyncio.get_event_loop().run_in_executor(None, _download_file, VOICES_URL, VOICES_PATH)
+            logger.info(f"Loading Qwen model: {MODEL_ID}")
+            # Use GPU if available, else CPU
+            device = "cuda" if torch.cuda.is_available() else "cpu"
             
-            print(f"[TTS] Loading Kokoro model from {MODEL_PATH}")
-            # Ensure we are using the right execution providers
-            # onnxruntime-gpu should pick up CUDA if available
-            _kokoro = Kokoro(str(MODEL_PATH), str(VOICES_PATH))
-            print(f"[TTS] Kokoro model loaded successfully")
+            # Use float32 on CPU for compatibility and stability
+            dtype = torch.bfloat16 if device == "cuda" else torch.float32
+            
+            load_kwargs = {
+                "dtype": dtype,
+                "trust_remote_code": True
+            }
+            if device == "cuda":
+                load_kwargs["device_map"] = "auto"
+            else:
+                # On CPU, avoid device_map to prevent meta-tensor copying issues
+                load_kwargs["device_map"] = None
+
+            def _load():
+                return Qwen3TTSModel.from_pretrained(
+                    MODEL_ID,
+                    **load_kwargs
+                )
+
+            _model = await asyncio.get_event_loop().run_in_executor(None, _load)
+            
+            logger.info(f"Qwen model loaded successfully on {device} in {time.time() - _load_start_time:.2f}s")
         except Exception as e:
-            print(f"[TTS] Error loading Kokoro model: {e}")
+            logger.error(f"Error loading Qwen model: {e}", exc_info=True)
             raise e
         finally:
             _is_loading = False
-    return _kokoro
+    return _model
 
+
+# Global lock for synthesis
+_lock = asyncio.Lock()
 
 async def synthesize(text: str, speed: float, speaker: str | None = None) -> bytes:
     """Return raw WAV bytes for the given text at the requested speed."""
-    try:
-        kokoro = await _ensure_model_loaded()
+    async with _lock:
+        try:
+            model = await ensure_model_loaded()
 
-        # Kokoro uses voice names like 'af_heart', 'am_adam', etc.
-        voice = speaker if speaker else "af_sarah"
-        
-        print(f"[TTS] Synthesizing: '{text[:50]}...' with voice {voice} at speed {speed}")
-        
-        start_time = time.time()
-        samples, sample_rate = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: kokoro.create(
-                text,
-                voice=voice,
-                speed=speed,
-                lang="en-us"
-            )
-        )
-        end_time = time.time()
-        print(f"[TTS] Synthesis completed in {end_time - start_time:.2f}s")
+            # Default speaker for Qwen3-TTS-0.6B-CustomVoice
+            # Ryan/Aiden are recommended for English.
+            voice = speaker if speaker else "Ryan"
+            
+            logger.info(f"Synthesizing: '{text[:50]}...' with voice {voice}")
+            
+            start_time = time.time()
+            
+            # Qwen3-TTS generate call
+            def _generate():
+                with torch.no_grad():
+                    # Qwen3-TTS generate returns (wavs, sr)
+                    return model.generate_custom_voice(
+                        text=text,
+                        language="English",
+                        speaker=voice
+                    )
 
-        # Convert to WAV bytes in memory
-        buffer = io.BytesIO()
-        sf.write(buffer, samples, sample_rate, format='WAV')
-        return buffer.getvalue()
-    except Exception as e:
-        print(f"[TTS] Synthesis error: {e}")
-        raise e
+            wavs, sr = await asyncio.get_event_loop().run_in_executor(None, _generate)
+            
+            audio = wavs[0]
+            
+            # Time stretch if speed is not 1.0
+            if abs(speed - 1.0) > 0.01:
+                logger.info(f"Applying time stretch: {speed}x")
+                # librosa expects numpy array
+                if torch.is_tensor(audio):
+                    audio = audio.cpu().numpy()
+                
+                # librosa.effects.time_stretch(y, *, rate, ...)
+                audio = librosa.effects.time_stretch(audio, rate=speed)
+            
+            end_time = time.time()
+            logger.info(f"Synthesis completed in {end_time - start_time:.2f}s")
+
+            # Convert to WAV bytes in memory
+            buffer = io.BytesIO()
+            sf.write(buffer, audio, sr, format='WAV')
+            return buffer.getvalue()
+        except Exception as e:
+            logger.error(f"Synthesis error: {e}", exc_info=True)
+            raise e

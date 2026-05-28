@@ -8,7 +8,7 @@ You are an experienced, pragmatic software engineering AI agent. Do not over-eng
 
 ### Goals
 - Upload and read `txt`, `pdf`, and `epub` files in the browser.
-- Generate speech from book text using a locally-run XTTS model (custom voice, natural prosody).
+- Generate speech from book text using a locally-run Qwen-TTS model (custom voice, natural prosody).
 - Support a per-user **phonetic dictionary** (override pronunciations of specific words).
 - Allow adjusting **reading speed** and other TTS settings.
 - Track **reading progress per file per sentence** for each user.
@@ -21,7 +21,7 @@ You are an experienced, pragmatic software engineering AI agent. Do not over-eng
 |---|---|
 | Frontend | [SolidJS](https://www.solidjs.com/) + TypeScript, built with Vite (via Bun) |
 | API Backend | Bun (TypeScript) — HTTP server for auth, file management, progress, settings |
-| TTS Service | Python + [XTTS](https://github.com/coqui-ai/TTS) (Coqui TTS), served via FastAPI |
+| TTS Service | Python + [Qwen-TTS](https://github.com/QwenLM/Qwen3-TTS) (Alibaba Qwen), served via FastAPI |
 | Auth | JWT tokens, bcrypt-hashed passwords |
 | Storage | SQLite (via Bun's built-in `bun:sqlite`) for users, progress, phonetic dictionaries, and settings |
 | Containerization | Docker + Docker Compose |
@@ -56,9 +56,9 @@ You are an experienced, pragmatic software engineering AI agent. Do not over-eng
 │   ├── tsconfig.json
 │   └── package.json
 │
-├── tts-service/       # Python FastAPI + XTTS
+├── tts-service/       # Python FastAPI + Qwen-TTS
 │   ├── main.py           # FastAPI app entry point
-│   ├── tts.py            # XTTS wrapper logic
+│   ├── tts.py            # Qwen-TTS wrapper logic
 │   ├── requirements.txt
 │   └── pyproject.toml    # uv project manifest
 │
@@ -75,7 +75,7 @@ You are an experienced, pragmatic software engineering AI agent. Do not over-eng
 | `backend/src/routes/tts-proxy.ts` | Forwards TTS requests to the Python service, streams audio back |
 | `frontend/src/stores/settingsStore.ts` | Global SolidJS store; synced from/to backend settings API |
 | `frontend/src/lib/api.ts` | Typed fetch wrapper for all backend calls |
-| `tts-service/tts.py` | XTTS model loading and synthesis logic |
+| `tts-service/tts.py` | Qwen-TTS model loading and synthesis logic |
 | `docker-compose.yml` | Wires all three services together |
 
 ---
@@ -161,7 +161,7 @@ backend (Bun, port 3000)
   │
   │  Internal HTTP (not exposed externally)
   ▼
-tts-service (FastAPI + XTTS, port 8001)
+tts-service (FastAPI + Qwen-TTS, port 8001)
 ```
 
 - The **backend** is the single external API. The TTS service is internal-only (not reachable from outside Docker).
@@ -184,7 +184,7 @@ tts-service (FastAPI + XTTS, port 8001)
 
 ### Phonetic Dictionary
 - Stored in SQLite: `(userId, word, phonetic)`.
-- Before calling XTTS, the backend substitutes words in the text with their phonetic overrides.
+- Before calling Qwen-TTS, the backend substitutes words in the text with their phonetic overrides.
 - Dictionary is scoped per-user; one user's overrides don't affect others.
 
 ### Settings
@@ -210,10 +210,10 @@ tts-service (FastAPI + XTTS, port 8001)
 - **Navigation**: Prev/Next buttons navigate between pages and automatically cross chapter boundaries.
 - **TTS**: Reads one page at a time. Markers like `[H1]` and `<hr />` are filtered out or paused during speech.
 
-### XTTS / TTS Service
-- The TTS service exposes `POST /synthesize` with `{ text, speed, phonetic_dict? }`.
-- The XTTS model is loaded once at startup (expensive); never reload it per-request.
-- Use a request queue in the TTS service to avoid concurrent synthesis (XTTS is not thread-safe by default).
+### Qwen-TTS / TTS Service
+- The TTS service exposes `POST /synthesize` with `{ text, speed, speaker_wav? }`.
+- The Qwen-TTS model is loaded once at startup (expensive); never reload it per-request.
+- Use a request queue in the TTS service to avoid concurrent synthesis (Qwen-TTS is not thread-safe by default).
 
 ---
 
@@ -221,7 +221,7 @@ tts-service (FastAPI + XTTS, port 8001)
 
 - **Don't call the TTS service from the frontend directly.** It must go through the backend proxy so auth is enforced and the service stays internal.
 - **Don't store settings in `localStorage`.** Settings belong in SQLite (per-user, server-side) so they roam across browsers/devices and are included in a single backup.
-- **Don't reload the XTTS model per request.** Load it once at startup; model loading takes 10–30 seconds.
+- **Don't reload the Qwen-TTS model per request.** Load it once at startup; model loading takes 10–30 seconds.
 - **Don't expose the TTS service port in `docker-compose.yml`.** It should only be on the internal Docker network.
 - **Don't parse book files on every read request.** Parse once on upload and cache the result.
 - **Don't use `any` in TypeScript.** Use proper types or `unknown` with narrowing.
@@ -258,7 +258,7 @@ Optional body explaining *why*, not *what*.
 **Examples:**
 ```
 feat: add phonetic dictionary import from CSV
-fix: prevent XTTS model reload on concurrent requests
+fix: prevent Qwen-TTS model reload on concurrent requests
 chore: upgrade bun to 1.x
 ```
 

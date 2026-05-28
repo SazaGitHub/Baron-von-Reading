@@ -69,13 +69,21 @@ export async function handleTtsProxy(req: Request, userId: number): Promise<Resp
       .all(userId);
     
     const processedText = applyPhoneticDict(body.text, dict);
-    console.log(`[TTS Proxy] Processing request: "${body.text.substring(0, 30)}..." -> "${processedText.substring(0, 30)}..."`);
+    console.log(`[TTS Proxy] Request: "${body.text.substring(0, 30)}..." voice=${body.speaker_wav} speed=${body.speed}`);
 
     const upstream = await fetch(`${TTS_SERVICE_URL}/synthesize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...body, text: processedText }),
+      signal: AbortSignal.timeout(300000), // 5 minute timeout
     });
+
+    if (!upstream.ok) {
+      const errorText = await upstream.text();
+      console.error(`[TTS Proxy] Upstream error (${upstream.status}): ${errorText}`);
+      return new Response(errorText, { status: upstream.status });
+    }
+
     return new Response(upstream.body, {
       status: upstream.status,
       headers: {

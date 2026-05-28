@@ -5,7 +5,7 @@ export interface Settings {
   theme: "light" | "dark" | "amoled";
   fontSize: number;
   voice?: string;
-  ttsEngine?: "browser" | "kokoro";
+  ttsEngine?: "browser" | "qwentts";
 }
 
 export interface Progress {
