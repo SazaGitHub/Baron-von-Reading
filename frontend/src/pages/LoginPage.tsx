@@ -1,8 +1,8 @@
 import { createSignal, Show, createResource } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { login, register, getAuthStatus, putSettings } from "../lib/api";
+import { login, register, getAuthStatus } from "../lib/api";
 import { setToken } from "../lib/token";
-import { settings, setSettings, loadSettings } from "../stores/settingsStore";
+import { settings, loadSettings, saveSettings } from "../stores/settingsStore";
 
 export default function LoginPage() {
   const [authStatus] = createResource(getAuthStatus);
@@ -76,10 +76,8 @@ export default function LoginPage() {
       position: "relative"
     }}>
       <button 
-        onClick={async () => {
-          const nt = nextTheme();
-          const s = { ...settings, theme: nt as any };
-          setSettings(s); await putSettings(s).catch(() => {});
+        onClick={() => {
+          saveSettings({ theme: nextTheme() as any });
         }}
         style={{ 
           position: "absolute",

@@ -1,8 +1,8 @@
 import { createSignal, createResource, For, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { getBooks, uploadBook, deleteBook, putSettings } from "../lib/api";
+import { getBooks, uploadBook, deleteBook } from "../lib/api";
 import { setToken } from "../lib/token";
-import { settings, setSettings } from "../stores/settingsStore";
+import { settings, saveSettings } from "../stores/settingsStore";
 
 export default function LibraryPage() {
   const navigate = useNavigate();
@@ -80,10 +80,8 @@ export default function LibraryPage() {
         
         <div style={{ "margin-bottom": "4rem", "text-align": "center", position: "relative" }}>
           <button 
-            onClick={async () => {
-              const nt = nextTheme();
-              const s = { ...settings, theme: nt as any };
-              setSettings(s); await putSettings(s).catch(() => {});
+            onClick={() => {
+              saveSettings({ theme: nextTheme() as any });
             }}
             style={{ 
               position: "absolute",

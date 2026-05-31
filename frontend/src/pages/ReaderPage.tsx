@@ -17,10 +17,9 @@ import {
   getPhoneticDict,
   upsertPhonetic,
   deletePhonetic,
-  putSettings,
   type BookChapterMeta,
 } from "../lib/api";
-import { settings, setSettings } from "../stores/settingsStore";
+import { settings, saveSettings } from "../stores/settingsStore";
 import { getCachedAudio, setCachedAudio, clearTtsCache } from "../lib/tts-cache"; 
 
 const PARAGRAPHS_PER_PAGE = 25;
@@ -423,26 +422,26 @@ export default function ReaderPage() {
             <div style={{ background: panelBg(), padding: "1.2rem 1.5rem", display: "flex", gap: "2rem", "flex-wrap": "wrap", "align-items": "flex-end", "border-bottom": settings.theme === "light" ? "1px solid #e2e8f0" : "1px solid #334155", position: "sticky", top: "56px", "z-index": 109 }}>
               <div>
                 <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>Speed: {settings.speed.toFixed(1)}x</label>
-                <input type="range" min="0.5" max="2" step="0.1" value={settings.speed} onInput={async (e) => { const s = { ...settings, speed: parseFloat(e.currentTarget.value) }; setSettings(s); await putSettings(s).catch(() => {}); }} style={{ width: "120px" }} />
+                <input type="range" min="0.5" max="2" step="0.1" value={settings.speed} onInput={(e) => saveSettings({ speed: parseFloat(e.currentTarget.value) })} style={{ width: "120px" }} />
               </div>
               <div>
                 <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>Size: {settings.fontSize}px</label>
-                <input type="range" min="12" max="36" step="1" value={settings.fontSize} onInput={async (e) => { const s = { ...settings, fontSize: parseInt(e.currentTarget.value, 10) }; setSettings(s); await putSettings(s).catch(() => {}); }} style={{ width: "120px" }} />
+                <input type="range" min="12" max="36" step="1" value={settings.fontSize} onInput={(e) => saveSettings({ fontSize: parseInt(e.currentTarget.value, 10) })} style={{ width: "120px" }} />
               </div>
               <div>
-                <button onClick={async () => { const nt = nextTheme(); const s = { ...settings, theme: nt as any }; setSettings(s); await putSettings(s).catch(() => {}); }} style={{ padding: "0.5rem 1rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}`, background: "transparent", color: fgColor(), cursor: "pointer", "font-weight": "600" }}>Theme: {themeLabel()}</button>
+                <button onClick={() => saveSettings({ theme: nextTheme() as any })} style={{ padding: "0.5rem 1rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}`, background: "transparent", color: fgColor(), cursor: "pointer", "font-weight": "600" }}>Theme: {themeLabel()}</button>
               </div>
               <div>
                 <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>TTS Engine:</label>
                 <div style={{ display: "flex", gap: "0.4rem", background: bgColor(), padding: "0.2rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}` }}>
-                  <button onClick={async () => { const s = { ...settings, ttsEngine: "browser" as const }; setSettings(s); await putSettings(s).catch(() => {}); stopTts(); }} style={{ flex: 1, padding: "0.4rem 0.8rem", border: "none", "border-radius": "6px", background: (!settings.ttsEngine || settings.ttsEngine === "browser") ? accentColor() : "transparent", color: (!settings.ttsEngine || settings.ttsEngine === "browser") ? "#0f172a" : fgColor(), cursor: "pointer", "font-size": "0.85rem", "font-weight": "600" }}>Browser</button>
-                  <button onClick={async () => { const s = { ...settings, ttsEngine: "qwentts" as const }; setSettings(s); await putSettings(s).catch(() => {}); stopTts(); }} style={{ flex: 1, padding: "0.4rem 0.8rem", border: "none", "border-radius": "6px", background: settings.ttsEngine === "qwentts" ? accentColor() : "transparent", color: settings.ttsEngine === "qwentts" ? "#0f172a" : fgColor(), cursor: "pointer", "font-size": "0.85rem", "font-weight": "600" }}>Qwen</button>
+                  <button onClick={() => { saveSettings({ ttsEngine: "browser" }); stopTts(); }} style={{ flex: 1, padding: "0.4rem 0.8rem", border: "none", "border-radius": "6px", background: (!settings.ttsEngine || settings.ttsEngine === "browser") ? accentColor() : "transparent", color: (!settings.ttsEngine || settings.ttsEngine === "browser") ? "#0f172a" : fgColor(), cursor: "pointer", "font-size": "0.85rem", "font-weight": "600" }}>Browser</button>
+                  <button onClick={() => { saveSettings({ ttsEngine: "qwentts" }); stopTts(); }} style={{ flex: 1, padding: "0.4rem 0.8rem", border: "none", "border-radius": "6px", background: settings.ttsEngine === "qwentts" ? accentColor() : "transparent", color: settings.ttsEngine === "qwentts" ? "#0f172a" : fgColor(), cursor: "pointer", "font-size": "0.85rem", "font-weight": "600" }}>Qwen</button>
                 </div>
               </div>
               <Show when={settings.ttsEngine === "qwentts"}>
                 <div>
                   <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>Qwen Voice:</label>
-                  <select value={settings.voice || ""} onChange={async (e) => { const v = e.currentTarget.value; const s = { ...settings, voice: v }; setSettings(s); await putSettings(s).catch(() => {}); audioCache.clear(); clearTtsCache().catch(() => {}); }} style={{ padding: "0.5rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}`, background: panelBg(), color: fgColor() }}>
+                  <select value={settings.voice || ""} onChange={(e) => { saveSettings({ voice: e.currentTarget.value }); audioCache.clear(); clearTtsCache().catch(() => {}); }} style={{ padding: "0.5rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}`, background: panelBg(), color: fgColor() }}>
                     <option value="">Default (Ryan)</option>
                     <option value="Ryan">Ryan (Male)</option>
                     <option value="Aiden">Aiden (Male)</option>

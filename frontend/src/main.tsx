@@ -1,12 +1,17 @@
 import { render } from "solid-js/web";
 import { Router, Route } from "@solidjs/router";
-import { createEffect } from "solid-js";
+import { createEffect, onMount } from "solid-js";
 import { token } from "./lib/token";
+import { loadSettings } from "./stores/settingsStore";
 import LoginPage from "./pages/LoginPage";
 import LibraryPage from "./pages/LibraryPage";
 import ReaderPage from "./pages/ReaderPage";
 
 function App() {
+  onMount(() => {
+    loadSettings();
+  });
+  
   return (
     <Router>
       <Route path="/login" component={LoginPage} />

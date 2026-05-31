@@ -1,25 +1,51 @@
 import { createStore } from "solid-js/store";
 import { getSettings, putSettings, type Settings } from "../lib/api";
 
+const LOCAL_STORAGE_KEY = "baron-settings-cache";
+
 const defaultSettings: Settings = {
   speed: 1,
   theme: "light",
   fontSize: 16,
 };
 
-const [settings, setSettings] = createStore<Settings>({ ...defaultSettings });
+// Try to load from localStorage for immediate UI response
+const getInitialSettings = (): Settings => {
+  try {
+    const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (cached) {
+      return { ...defaultSettings, ...JSON.parse(cached) };
+    }
+  } catch (e) {
+    console.warn("Failed to load settings from localStorage", e);
+  }
+  return { ...defaultSettings };
+};
+
+const [settings, setSettings] = createStore<Settings>(getInitialSettings());
 
 export async function loadSettings(): Promise<void> {
   try {
     const data = await getSettings();
     setSettings(data);
+    // Sync cache with server truth
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
   } catch {
-    // use defaults if not logged in yet
+    // use defaults or cached if not logged in yet
   }
 }
 
-export async function saveSettings(): Promise<void> {
-  await putSettings({ speed: settings.speed, theme: settings.theme, fontSize: settings.fontSize });
+export async function saveSettings(newSettings: Partial<Settings>): Promise<void> {
+  const updated = { ...settings, ...newSettings };
+  setSettings(updated);
+  
+  // Save to localStorage for instant persistence on reload
+  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+  
+  // Save to server
+  await putSettings(updated).catch(err => {
+    console.error("Failed to save settings to server", err);
+  });
 }
 
 export { settings, setSettings };
