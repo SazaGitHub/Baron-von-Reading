@@ -163,9 +163,17 @@ export async function getEpubStructure(buffer: Buffer, fileId: string): Promise<
   const opfXml = await zip.file(opfPath)?.async("string");
   if (!opfXml) throw new Error("Invalid EPUB: missing OPF file");
 
-  const spineMatches = [...opfXml.matchAll(/idref="([^"]+)"/g)].map((m) => m[1]);
-  const manifestMatches = [...opfXml.matchAll(/<item[^>]+id="([^"]+)"[^>]+href="([^"]+)"/g)];
-  const idToHref = new Map<string, string>(manifestMatches.map((m) => [m[1], m[2]]));
+  const spineMatches = [...opfXml.matchAll(/idref=["']([^"']+)["']/gi)].map((m) => m[1]);
+  const manifestMatches = [...opfXml.matchAll(/<item\s+([^>]+)\/?>/gi)];
+  const idToHref = new Map<string, string>();
+  for (const match of manifestMatches) {
+    const attrs = match[1];
+    const idMatch = attrs.match(/id=["']([^"']+)["']/i);
+    const hrefMatch = attrs.match(/href=["']([^"']+)["']/i);
+    if (idMatch && hrefMatch) {
+      idToHref.set(idMatch[1], hrefMatch[1]);
+    }
+  }
 
   const meta: ChapterMeta[] = [];
   for (let i = 0; i < spineMatches.length; i++) {
