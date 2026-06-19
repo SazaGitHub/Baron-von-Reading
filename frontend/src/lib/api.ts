@@ -5,7 +5,7 @@ export interface Settings {
   theme: "light" | "dark" | "amoled";
   fontSize: number;
   voice?: string;
-  ttsEngine?: "browser" | "qwentts";
+  ttsEngine?: "browser" | "neutts";
 }
 
 export interface Progress {
@@ -15,6 +15,13 @@ export interface Progress {
 export interface BookMeta {
   fileId: string;
   name: string;
+  displayName: string;
+}
+
+export interface Bookshelf {
+  id: number;
+  name: string;
+  bookFileIds: string[];
 }
 
 export interface PhoneticEntry {
@@ -99,6 +106,13 @@ export async function deleteBook(fileId: string): Promise<void> {
   await apiFetch(`/books/${encodeURIComponent(fileId)}`, { method: "DELETE" });
 }
 
+export async function renameBook(fileId: string, displayName: string): Promise<void> {
+  await apiFetch(`/books/${encodeURIComponent(fileId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ displayName }),
+  });
+}
+
 export interface BookChapterMeta {
   title: string;
   id: string;
@@ -175,4 +189,34 @@ export async function upsertPhonetic(word: string, phonetic: string): Promise<vo
 
 export async function deletePhonetic(word: string): Promise<void> {
   await apiFetch(`/phonetic-dict/${encodeURIComponent(word)}`, { method: "DELETE" });
+}
+
+export async function getBookshelves(): Promise<Bookshelf[]> {
+  const res = await apiFetch("/bookshelves");
+  return res.json();
+}
+
+export async function createBookshelf(name: string): Promise<Bookshelf> {
+  const res = await apiFetch("/bookshelves", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+  return res.json();
+}
+
+export async function deleteBookshelf(id: number): Promise<void> {
+  await apiFetch(`/bookshelves/${id}`, { method: "DELETE" });
+}
+
+export async function addBookToShelf(shelfId: number, fileId: string): Promise<void> {
+  await apiFetch(`/bookshelves/${shelfId}/books`, {
+    method: "POST",
+    body: JSON.stringify({ fileId }),
+  });
+}
+
+export async function removeBookFromShelf(shelfId: number, fileId: string): Promise<void> {
+  await apiFetch(`/bookshelves/${shelfId}/books/${encodeURIComponent(fileId)}`, {
+    method: "DELETE",
+  });
 }

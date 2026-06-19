@@ -7,6 +7,7 @@ const defaultSettings: Settings = {
   speed: 1,
   theme: "light",
   fontSize: 16,
+  ttsEngine: "browser",
 };
 
 // Try to load from localStorage for immediate UI response

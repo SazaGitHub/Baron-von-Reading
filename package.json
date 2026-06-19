@@ -1,0 +1,17 @@
+{
+  "name": "baron-von-reading",
+  "version": "1.0.0",
+  "description": "Standalone desktop ebook reader with browser-based speech synthesis",
+  "main": "main.js",
+  "scripts": {
+    "install-all": "npm install && npm install --prefix frontend && npm install --prefix backend",
+    "build:frontend": "npm run build --prefix frontend",
+    "build:backend": "tsc -p backend",
+    "build": "npm run build:frontend && npm run build:backend",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^42.4.1",
+    "typescript": "^5.4.0"
+  }
+}

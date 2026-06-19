@@ -1,0 +1,8 @@
+node_modules
+.git
+backend/data
+backend/db.sqlite
+frontend/dist
+tts-service/.venv
+**/__pycache__
+.env

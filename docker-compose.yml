@@ -17,9 +17,12 @@ services:
 
   tts-service:
     build: ./tts-service
+    ports:
+      - "8001:8001"
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - COQUI_TOS_AGREED=1
+      - CUDA_LAUNCH_BLOCKING=1
     volumes:
       - tts_models:/tmp/tts_models
     deploy:

@@ -1,5 +1,22 @@
+import crypto from "crypto";
 import { db } from "../db/schema";
 import { signJwt } from "../middleware/auth";
+
+const Bun = {
+  password: {
+    async hash(password: string): Promise<string> {
+      const salt = crypto.randomBytes(16).toString("hex");
+      const derivedKey = crypto.scryptSync(password, salt, 64);
+      return `${salt}:${derivedKey.toString("hex")}`;
+    },
+    async verify(password: string, hash: string): Promise<boolean> {
+      const [salt, key] = hash.split(":");
+      if (!salt || !key) return false;
+      const derivedKey = crypto.scryptSync(password, salt, 64);
+      return crypto.timingSafeEqual(Buffer.from(key, "hex"), derivedKey);
+    }
+  }
+};
 
 interface UserRow {
   id: number;

@@ -12,8 +12,8 @@ function base64urlDecode(str: string): Uint8Array {
   return bytes;
 }
 
-function base64urlEncode(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
+function base64urlEncode(buf: any): string {
+  const bytes = new Uint8Array(buf.buffer || buf);
   let binary = "";
   for (const b of bytes) {
     binary += String.fromCharCode(b);
@@ -70,8 +70,8 @@ export async function authMiddleware(req: Request): Promise<{ userId: number }> 
   const valid = await crypto.subtle.verify(
     "HMAC",
     key,
-    base64urlDecode(signature),
-    new TextEncoder().encode(`${header}.${body}`)
+    base64urlDecode(signature) as any,
+    new TextEncoder().encode(`${header}.${body}`) as any
   );
   if (!valid) {
     console.error("JWT signature verification failed");

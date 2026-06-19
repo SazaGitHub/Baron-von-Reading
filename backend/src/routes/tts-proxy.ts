@@ -1,94 +1,16 @@
-import { db } from "../db/schema";
-
-const TTS_SERVICE_URL = process.env["TTS_SERVICE_URL"] ?? "http://localhost:8001";
-
-interface PhoneticRow {
-  word: string;
-  phonetic: string;
-}
-
-function escapeRegex(str: string): string {
-  const specials = [
-    ".",
-    "*",
-    "+",
-    "?",
-    "^",
-    "$",
-    "{",
-    "}",
-    "(",
-    ")",
-    "|",
-    "[",
-    "]",
-    "\\",
-  ];
-  let result = str;
-  for (const char of specials) {
-    result = result.split(char).join("\\" + char);
-  }
-  return result;
-}
-
-function applyPhoneticDict(text: string, dict: PhoneticRow[]): string {
-  let result = text;
-  // Sort by length descending to match longer phrases first
-  const sortedDict = [...dict].sort((a, b) => b.word.length - a.word.length);
-  
-  for (const { word, phonetic } of sortedDict) {
-    if (!word.trim()) continue;
-    const escaped = escapeRegex(word);
-    const re = new RegExp(`(?<![a-zA-Z0-9'])${escaped}(?![a-zA-Z0-9'])`, "gi");
-    const nextResult = result.replace(re, phonetic);
-    if (nextResult !== result) {
-      console.log(`[Phonetic] Replaced "${word}" with "${phonetic}"`);
-    }
-    result = nextResult;
-  }
-  return result;
-}
-
-export async function handleTtsProxy(req: Request, userId: number): Promise<Response> {
+export async function handleTtsProxy(req: Request, _userId: number): Promise<Response> {
   const url = new URL(req.url);
 
   if (req.method === "GET" && url.pathname === "/api/tts/status") {
-    const upstream = await fetch(`${TTS_SERVICE_URL}/status`);
-    const data = await upstream.json();
-    return new Response(JSON.stringify(data), {
+    return new Response(JSON.stringify({ status: "offline", progress: 0 }), {
       headers: { "Content-Type": "application/json" },
     });
   }
 
   if (req.method === "POST" && url.pathname === "/api/tts/synthesize") {
-    const body = (await req.json()) as { text: string; speed: number; speaker_wav?: string };
-
-    // Apply user's phonetic dictionary (Backend fallback)
-    const dict = db
-      .query<PhoneticRow, [number]>("SELECT word, phonetic FROM phonetic_dict WHERE user_id = ?")
-      .all(userId);
-    
-    const processedText = applyPhoneticDict(body.text, dict);
-    console.log(`[TTS Proxy] Request: "${body.text.substring(0, 30)}..." voice=${body.speaker_wav} speed=${body.speed}`);
-
-    const upstream = await fetch(`${TTS_SERVICE_URL}/synthesize`, {
-      method: "POST",
+    return new Response(JSON.stringify({ error: "Server-side TTS is disabled in desktop mode" }), {
+      status: 501,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...body, text: processedText }),
-      signal: AbortSignal.timeout(300000), // 5 minute timeout
-    });
-
-    if (!upstream.ok) {
-      const errorText = await upstream.text();
-      console.error(`[TTS Proxy] Upstream error (${upstream.status}): ${errorText}`);
-      return new Response(errorText, { status: upstream.status });
-    }
-
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers: {
-        "Content-Type": upstream.headers.get("Content-Type") ?? "audio/wav",
-      },
     });
   }
 

@@ -1,29 +1,30 @@
-"""Qwen TTS synthesis wrapper. Model loaded on startup."""
+"""NeuTTS Nano synthesis wrapper. Model loaded on startup."""
 
 import asyncio
 import io
 import time
 import os
 import logging
+import re
 from pathlib import Path
 
 import torch
 import soundfile as sf
-import librosa
 import numpy as np
-from qwen_tts import Qwen3TTSModel
+from neutts import NeuTTS
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("TTS")
 
 # Model is loaded lazily on first request or via explicit preload
-_model: Qwen3TTSModel | None = None
+_model: NeuTTS | None = None
 _is_loading = False
 _load_start_time = 0
 
-# Use CustomVoice variant for preset speakers like Ryan/Aiden
-MODEL_ID = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+# NeuTTS Nano configuration
+MODEL_ID = "neuphonic/neutts-nano"
+CODEC_ID = "neuphonic/neucodec"
 
 def get_status() -> dict:
     """Return the current status of the model."""
@@ -33,18 +34,17 @@ def get_status() -> dict:
     
     if _is_loading:
         elapsed = time.time() - _load_start_time
-        # Fake progress for user feedback
-        progress = min(95, int((elapsed / 60) * 100)) 
+        # NeuTTS models are relatively small (~200MB)
+        progress = min(95, int((elapsed / 45) * 100)) 
         return {"status": "downloading", "progress": progress}
     
     return {"status": "not_started", "progress": 0}
 
-async def ensure_model_loaded() -> Qwen3TTSModel:
-    """Load Qwen model if not already loaded."""
+async def ensure_model_loaded() -> NeuTTS:
+    """Load NeuTTS model if not already loaded."""
     global _model, _is_loading, _load_start_time
     if _model is None:
         if _is_loading:
-            # Wait for already in-progress load
             while _is_loading:
                 await asyncio.sleep(1)
             return _model
@@ -52,87 +52,107 @@ async def ensure_model_loaded() -> Qwen3TTSModel:
         _is_loading = True
         _load_start_time = time.time()
         try:
-            logger.info(f"Loading Qwen model: {MODEL_ID}")
-            # Use GPU if available, else CPU
+            logger.info(f"Loading NeuTTS model: {MODEL_ID}")
+            # NeuTTS Nano is designed for CPU but can use GPU
             device = "cuda" if torch.cuda.is_available() else "cpu"
             
-            # Use float32 on CPU for compatibility and stability
-            dtype = torch.bfloat16 if device == "cuda" else torch.float32
-            
-            load_kwargs = {
-                "dtype": dtype,
-                "trust_remote_code": True
-            }
-            if device == "cuda":
-                load_kwargs["device_map"] = "auto"
-            else:
-                # On CPU, avoid device_map to prevent meta-tensor copying issues
-                load_kwargs["device_map"] = None
-
             def _load():
-                return Qwen3TTSModel.from_pretrained(
-                    MODEL_ID,
-                    **load_kwargs
+                return NeuTTS(
+                    backbone_repo=MODEL_ID,
+                    backbone_device=device,
+                    codec_repo=CODEC_ID,
+                    codec_device=device
                 )
 
             _model = await asyncio.get_event_loop().run_in_executor(None, _load)
             
-            logger.info(f"Qwen model loaded successfully on {device} in {time.time() - _load_start_time:.2f}s")
+            logger.info(f"NeuTTS model loaded successfully on {device} in {time.time() - _load_start_time:.2f}s")
         except Exception as e:
-            logger.error(f"Error loading Qwen model: {e}", exc_info=True)
+            logger.error(f"Error loading NeuTTS model: {e}", exc_info=True)
             raise e
         finally:
             _is_loading = False
     return _model
 
 
-# Global lock for synthesis
-_lock = asyncio.Lock()
+# Global semaphore for synthesis
+# NeuTTS Nano is lightweight; allow limited concurrency if resources allow
+_semaphore = asyncio.Semaphore(2)
+
+# Sample voice data
+VOICES = {
+    "Jo": {"url": "https://github.com/neuphonic/neutts/raw/main/samples/jo.wav", "text": "This is a recording of a woman speaking."},
+    "Dave": {"url": "https://github.com/neuphonic/neutts/raw/main/samples/dave.wav", "text": "This is a recording of a man speaking."},
+    "Greta": {"url": "https://github.com/neuphonic/neutts/raw/main/samples/greta.wav", "text": "Dies ist eine Aufnahme einer Frau, die Deutsch spricht."},
+    "Mateo": {"url": "https://github.com/neuphonic/neutts/raw/main/samples/mateo.wav", "text": "Esta es una grabación de un hombre hablando español."},
+}
+
+VOICE_DIR = Path("voices")
+_voice_cache = {}
+
+async def _get_voice_data(speaker: str, model: NeuTTS):
+    """Download and encode voice reference if not cached."""
+    speaker = speaker or "Jo"
+    if speaker not in VOICES:
+        logger.warning(f"Voice {speaker} not found, falling back to Jo")
+        speaker = "Jo"
+    
+    if speaker in _voice_cache:
+        return _voice_cache[speaker]
+    
+    VOICE_DIR.mkdir(exist_ok=True)
+    voice_path = VOICE_DIR / f"{speaker.lower()}.wav"
+    
+    if not voice_path.exists():
+        import requests
+        logger.info(f"Downloading voice sample for {speaker}...")
+        res = requests.get(VOICES[speaker]["url"])
+        res.raise_for_status()
+        voice_path.write_bytes(res.content)
+    
+    logger.info(f"Encoding reference for {speaker}...")
+    def _encode():
+        return model.encode_reference(str(voice_path))
+    
+    codes = await asyncio.get_event_loop().run_in_executor(None, _encode)
+    _voice_cache[speaker] = (codes, VOICES[speaker]["text"])
+    return _voice_cache[speaker]
 
 async def synthesize(text: str, speed: float, speaker: str | None = None) -> bytes:
-    """Return raw WAV bytes for the given text at the requested speed."""
-    async with _lock:
+    """Return raw WAV bytes for the given text."""
+    async with _semaphore:
         try:
             model = await ensure_model_loaded()
-
-            # Default speaker for Qwen3-TTS-0.6B-CustomVoice
-            # Ryan/Aiden are recommended for English.
-            voice = speaker if speaker else "Ryan"
             
-            logger.info(f"Synthesizing: '{text[:50]}...' with voice {voice}")
+            # Get voice reference codes and text
+            ref_codes, ref_text = await _get_voice_data(speaker, model)
+
+            # Clean text - strip [H1] etc.
+            text = re.sub(r'\[H[1-6]\]', '', text)
+            text = text.strip()
+            if not text:
+                logger.warning("Empty text received for synthesis")
+                raise ValueError("Synthesis text is empty")
+            
+            logger.info(f"Synthesizing ({len(text)} chars): '{text[:50]}...' (speaker={speaker})")
             
             start_time = time.time()
             
-            # Qwen3-TTS generate call
             def _generate():
-                with torch.no_grad():
-                    # Qwen3-TTS generate returns (wavs, sr)
-                    return model.generate_custom_voice(
-                        text=text,
-                        language="English",
-                        speaker=voice
-                    )
+                # Neuphonic NeuTTS uses .infer() method
+                # Correct signature: infer(text, ref_codes, ref_text)
+                audio_data = model.infer(text=text, ref_codes=ref_codes, ref_text=ref_text)
+                sr = getattr(model, 'sample_rate', 24000)
+                return audio_data, sr
 
-            wavs, sr = await asyncio.get_event_loop().run_in_executor(None, _generate)
+            audio, sr = await asyncio.get_event_loop().run_in_executor(None, _generate)
             
-            audio = wavs[0]
-            
-            # Time stretch if speed is not 1.0
-            if abs(speed - 1.0) > 0.01:
-                logger.info(f"Applying time stretch: {speed}x")
-                # librosa expects numpy array
-                if torch.is_tensor(audio):
-                    audio = audio.cpu().numpy()
-                
-                # librosa.effects.time_stretch(y, *, rate, ...)
-                audio = librosa.effects.time_stretch(audio, rate=speed)
-            
-            end_time = time.time()
-            logger.info(f"Synthesis completed in {end_time - start_time:.2f}s")
-
             # Convert to WAV bytes in memory
             buffer = io.BytesIO()
             sf.write(buffer, audio, sr, format='WAV')
+            
+            end_time = time.time()
+            logger.info(f"Synthesis completed in {end_time - start_time:.2f}s")
             return buffer.getvalue()
         except Exception as e:
             logger.error(f"Synthesis error: {e}", exc_info=True)

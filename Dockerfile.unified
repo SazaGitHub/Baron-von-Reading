@@ -18,7 +18,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 COPY backend/package.json ./
 RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun install
-COPY backend/ .
+
+# Copy backend source after dependencies are installed
+COPY backend/src ./src
+COPY backend/tsconfig.json ./
 
 # Copy frontend build to backend's public directory
 # backend/src/index.ts expects public dir at ../public relative to src

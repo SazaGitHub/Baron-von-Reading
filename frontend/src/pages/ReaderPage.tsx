@@ -20,13 +20,13 @@ import {
   type BookChapterMeta,
 } from "../lib/api";
 import { settings, saveSettings } from "../stores/settingsStore";
-import { getCachedAudio, setCachedAudio, clearTtsCache } from "../lib/tts-cache"; 
+import { getCachedAudio, setCachedAudio } from "../lib/tts-cache"; 
 
 const PARAGRAPHS_PER_PAGE = 25;
 
 function splitSentences(text: string): string[] {
   if (text === "<hr />" || text.startsWith("[H") || text.includes("<a ")) return [text];
-  return text.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0);
+  return text.split(/(?<=[.!?。！？])\s*/).filter(s => s.trim().length > 0);
 }
 
 function cleanTextForTts(text: string): string {
@@ -71,6 +71,7 @@ export default function ReaderPage() {
   const [selectedVoice, setSelectedVoice] = createSignal<SpeechSynthesisVoice | null>(null);
   const [availableVoices, setAvailableVoices] = createSignal<SpeechSynthesisVoice[]>([]);
   const [activeSentence, setActiveSentence] = createSignal<[number, number] | null>(null);
+  const [loadingAudio, setLoadingAudio] = createSignal<boolean>(false);
   const [pendingHash, setPendingHash] = createSignal<string | null>(null);        
 
   const chapters = (): BookChapterMeta[] => book()?.chapters ?? [];
@@ -119,12 +120,13 @@ export default function ReaderPage() {
 
   const fetchAudio = async (text: string): Promise<Blob> => {
     if (settings.ttsEngine === "browser") throw new Error("Using browser engine");
-    const cacheKey = `${text}|${settings.speed}|${settings.voice || "Vivian"}`; 
+    // Always request at 1.0x speed from server for better caching and browser-side speed control
+    const cacheKey = `${text}|1.0|${settings.voice || "Vivian"}`;
     const cached = audioCache.get(cacheKey);
     if (cached) return await cached;
     const persistent = await getCachedAudio(cacheKey).catch(() => null);
     if (persistent) { audioCache.set(cacheKey, persistent); return persistent; }
-    const promise = synthesize(text, settings.speed, settings.voice);
+    const promise = synthesize(text, 1.0, settings.voice);
     audioCache.set(cacheKey, promise);
     try {
       const blob = await promise;
@@ -134,7 +136,7 @@ export default function ReaderPage() {
     } catch (err) { audioCache.delete(cacheKey); throw err; }
   };
 
-  const prefetchSentences = (pIdx: number, sIdx: number, sentences: string[][], depth = 5) => {
+  const prefetchSentences = (pIdx: number, sIdx: number, sentences: string[][], depth = 10) => {
     if (settings.ttsEngine === "browser") return;
     let count = 0, currP = pIdx, currS = sIdx + 1;
     if (currP === -1) { currP = 0; currS = 0; }
@@ -148,6 +150,26 @@ export default function ReaderPage() {
         fetchAudio(processedText).catch(() => {});
       }
       currS++; count++;
+    }
+
+    // If near end of page, prefetch next page
+    if (currP >= sentences.length && pageIndex() < totalPagesInChapter() - 1) {
+      const nextContent = currentChapter()?.paragraphs.slice((pageIndex() + 1) * PARAGRAPHS_PER_PAGE, (pageIndex() + 2) * PARAGRAPHS_PER_PAGE);
+      if (nextContent) {
+        const nextSentences = nextContent.map(splitSentences);
+        let nextP = 0, nextS = 0;
+        while (count < depth && nextP < nextSentences.length) {
+          if (nextS >= nextSentences[nextP].length) { nextP++; nextS = 0; continue; }
+          const rawText = nextSentences[nextP][nextS];
+          const textToRead = cleanTextForTts(rawText);
+          if (textToRead) {
+            const dict = phonetic() ?? [];
+            const processedText = applyPhoneticDict(textToRead, dict);
+            fetchAudio(processedText).catch(() => {});
+          }
+          nextS++; count++;
+        }
+      }
     }
   };
 
@@ -178,18 +200,24 @@ export default function ReaderPage() {
       }
     }, 100);
 
-    prefetchSentences(pIdx, sIdx, sentences, 5);
+    const currentAudioPromise = fetchAudio(processedText);
+    setLoadingAudio(true);
+    // Delay prefetching to prioritize the current sentence on the server
+    setTimeout(() => { if (playbackId === currentId && playing()) prefetchSentences(pIdx, sIdx, sentences, 2); }, 1000);
     window.speechSynthesis.cancel();
     if (!settings.ttsEngine || settings.ttsEngine === "browser") {
+      setLoadingAudio(false);
       playTtsWithBrowser(processedText, currentId, () => { if (playbackId === currentId) nextSentence(pIdx, sIdx, sentences); });
       return;
     }
     try {
-      const blob = await fetchAudio(processedText);
+      const blob = await currentAudioPromise;
+      setLoadingAudio(false);
       if (playbackId !== currentId || !playing()) return;
       if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; }
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
+      audio.playbackRate = settings.speed;
       currentAudio = audio;
       audio.onended = () => {
         URL.revokeObjectURL(url);
@@ -199,6 +227,7 @@ export default function ReaderPage() {
       await audio.play();
       if (playbackId !== currentId || !playing()) { audio.pause(); audio.src = ""; }
     } catch (err) {
+      setLoadingAudio(false);
       if (playbackId !== currentId || !playing()) return;
       playTtsWithBrowser(textToRead, currentId, () => { if (playbackId === currentId) nextSentence(pIdx, sIdx, sentences); });
     }
@@ -212,8 +241,8 @@ export default function ReaderPage() {
       playSentence(nextP, nextS, sentences);
     } else {
       const nextPg = pageIndex() + 1;
-      if (nextPg < totalPagesInChapter()) { setPageIndex(nextPg); setActiveSentence(null); saveProgress();
-      } else if (chapterIndex() < chapters().length - 1) { setChapterIndex(chapterIndex() + 1); setPageIndex(0); setActiveSentence(null); saveProgress();
+      if (nextPg < totalPagesInChapter()) { setPageIndex(nextPg); setActiveSentence(null); setLoadingAudio(false); saveProgress();
+      } else if (chapterIndex() < chapters().length - 1) { setChapterIndex(chapterIndex() + 1); setPageIndex(0); setActiveSentence(null); setLoadingAudio(false); saveProgress();
       } else { stopTts(); }
     }
   };
@@ -240,7 +269,7 @@ export default function ReaderPage() {
   };
 
   const stopTts = () => {
-    playbackId++; setPlaying(false);
+    playbackId++; setPlaying(false); setLoadingAudio(false);
     if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
     window.speechSynthesis.cancel();
   };
@@ -363,6 +392,8 @@ export default function ReaderPage() {
         .book-link:hover { background: rgba(56, 189, 248, 0.1) !important; border-bottom: 2px solid #38bdf8 !important; }
         .sentence-clickable { cursor: pointer; border-radius: 3px; transition: background 0.3s ease; }
         .sentence-clickable:hover { background: rgba(56, 189, 248, 0.1) !important; }
+        @keyframes pulse-opacity { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+        .sentence-loading { animation: pulse-opacity 1.5s infinite ease-in-out; background: rgba(56, 189, 248, 0.15) !important; }
         .sidebar-item:hover { background: rgba(56, 189, 248, 0.05) !important; }
         .progress-slider { -webkit-appearance: none; width: 100%; height: 4px; background: rgba(0,0,0,0.1); border-radius: 2px; outline: none; }
         .progress-slider::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #38bdf8; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.3); border: none; }
@@ -406,17 +437,39 @@ export default function ReaderPage() {
             <button onClick={() => navigate("/")} style={{ background: "none", border: "none", cursor: "pointer", "font-size": "1rem", color: accentColor(), "font-weight": "600" }}>Library</button>
             <span style={{ flex: 1, "font-size": "0.9rem", opacity: 0.6, overflow: "hidden", "white-space": "nowrap", "text-overflow": "ellipsis" }}>
               {fileId}
-              <Show when={ttsStatus() && ttsStatus()?.status !== "ready" && settings.ttsEngine === "qwentts"}>
+              <Show when={ttsStatus() && ttsStatus()?.status !== "ready" && settings.ttsEngine === "neutts"}>
                 <span style={{ "margin-left": "1rem", color: accentColor(), "font-weight": "600", "font-size": "0.8rem", background: "rgba(56, 189, 248, 0.1)", padding: "0.2rem 0.6rem", "border-radius": "10px" }}>
-                  {ttsStatus()?.status === "downloading" ? `📥 Loading Qwen: ${ttsStatus()?.progress}%` : "⚙️ Finalizing Qwen..."}
+                  {ttsStatus()?.status === "downloading" ? `📥 Loading NeuTTS: ${ttsStatus()?.progress}%` : "⚙️ Finalizing NeuTTS..."}
                 </span>
               </Show>
             </span>
             <button onClick={() => setShowSettings(!showSettings())} style={{ background: "none", border: "none", cursor: "pointer", "font-size": "1.3rem", opacity: 0.8 }}>⚙️</button>
-            <Show when={ttsStatus() && ttsStatus()?.status !== "ready" && settings.ttsEngine === "qwentts"}>
-              <div style={{ position: "absolute", bottom: "-1px", left: 0, height: "2px", background: accentColor(), width: `${ttsStatus()?.progress}%`, transition: "width 0.5s ease", "z-index": 10 }}></div>
-            </Show>
           </div>
+
+          <Show when={loadingAudio()}>
+            <div style={{
+              position: "fixed",
+              bottom: "120px",
+              right: "30px",
+              background: "rgba(0,0,0,0.7)",
+              color: "#fff",
+              padding: "0.5rem 1rem",
+              "border-radius": "20px",
+              "font-size": "0.75rem",
+              "font-weight": "600",
+              "z-index": 1000,
+              display: "flex",
+              "align-items": "center",
+              gap: "0.5rem",
+              animation: "pulse-opacity 1.5s infinite ease-in-out",
+              "pointer-events": "none",
+              "backdrop-filter": "blur(4px)",
+              border: "1px solid rgba(255,255,255,0.1)"
+            }}>
+              <span style={{ "font-size": "1rem" }}>🎙️</span>
+              <span>Synthesizing...</span>
+            </div>
+          </Show>
 
           <Show when={showSettings()}>
             <div style={{ background: panelBg(), padding: "1.2rem 1.5rem", display: "flex", gap: "2rem", "flex-wrap": "wrap", "align-items": "flex-end", "border-bottom": settings.theme === "light" ? "1px solid #e2e8f0" : "1px solid #334155", position: "sticky", top: "56px", "z-index": 109 }}>
@@ -432,32 +485,11 @@ export default function ReaderPage() {
                 <button onClick={() => saveSettings({ theme: nextTheme() as any })} style={{ padding: "0.5rem 1rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}`, background: "transparent", color: fgColor(), cursor: "pointer", "font-weight": "600" }}>Theme: {themeLabel()}</button>
               </div>
               <div>
-                <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>TTS Engine:</label>
-                <div style={{ display: "flex", gap: "0.4rem", background: bgColor(), padding: "0.2rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}` }}>
-                  <button onClick={() => { saveSettings({ ttsEngine: "browser" }); stopTts(); }} style={{ flex: 1, padding: "0.4rem 0.8rem", border: "none", "border-radius": "6px", background: (!settings.ttsEngine || settings.ttsEngine === "browser") ? accentColor() : "transparent", color: (!settings.ttsEngine || settings.ttsEngine === "browser") ? "#0f172a" : fgColor(), cursor: "pointer", "font-size": "0.85rem", "font-weight": "600" }}>Browser</button>
-                  <button onClick={() => { saveSettings({ ttsEngine: "qwentts" }); stopTts(); }} style={{ flex: 1, padding: "0.4rem 0.8rem", border: "none", "border-radius": "6px", background: settings.ttsEngine === "qwentts" ? accentColor() : "transparent", color: settings.ttsEngine === "qwentts" ? "#0f172a" : fgColor(), cursor: "pointer", "font-size": "0.85rem", "font-weight": "600" }}>Qwen</button>
-                </div>
+                <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>Voice:</label>
+                <select value={selectedVoice()?.name ?? ""} onChange={(e) => { const v = availableVoices().find(v => v.name === e.currentTarget.value); if (v) setSelectedVoice(v); }} style={{ padding: "0.5rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}`, background: panelBg(), color: fgColor(), "max-width": "220px" }}>
+                  <For each={availableVoices()}>{(v) => <option value={v.name}>{v.name}</option>}</For>
+                </select>
               </div>
-              <Show when={settings.ttsEngine === "qwentts"}>
-                <div>
-                  <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>Qwen Voice:</label>
-                  <select value={settings.voice || ""} onChange={(e) => { saveSettings({ voice: e.currentTarget.value }); audioCache.clear(); clearTtsCache().catch(() => {}); }} style={{ padding: "0.5rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}`, background: panelBg(), color: fgColor() }}>
-                    <option value="">Default (Ryan)</option>
-                    <option value="Ryan">Ryan (Male)</option>
-                    <option value="Aiden">Aiden (Male)</option>
-                    <option value="Vivian">Vivian (Female)</option>
-                    <option value="Serena">Serena (Female)</option>
-                  </select>
-                </div>
-              </Show>
-              <Show when={!settings.ttsEngine || settings.ttsEngine === "browser"}>
-                <div>
-                  <label style={{ "font-size": "0.8rem", display: "block", "margin-bottom": "0.4rem", opacity: 0.7 }}>Browser Voice:</label>
-                  <select value={selectedVoice()?.name ?? ""} onChange={(e) => { const v = availableVoices().find(v => v.name === e.currentTarget.value); if (v) setSelectedVoice(v); }} style={{ padding: "0.5rem", "border-radius": "8px", border: `1px solid ${settings.theme === "light" ? "#cbd5e1" : "#334155"}`, background: panelBg(), color: fgColor() }}>
-                    <For each={availableVoices()}>{(v) => <option value={v.name}>{v.name}</option>}</For>
-                  </select>
-                </div>
-              </Show>
               <button onClick={() => setShowPhonetic(!showPhonetic())} style={{ padding: "0.5rem 1rem", "border-radius": "8px", border: `1px solid ${accentColor()}`, color: accentColor(), background: "transparent", cursor: "pointer", "font-weight": "600" }}>Dictionary</button>
             </div>
             <Show when={showPhonetic()}>
@@ -495,7 +527,7 @@ export default function ReaderPage() {
                   return (
                     <p style={{ "text-indent": (pIdx() === 0 && pageIndex() === 0) ? "0" : "1.8em", "margin": "0", "text-align": "justify" }}>
                       <For each={sentences}>{(sentence, sIdx) => (
-                        <span data-p-idx={pIdx()} data-s-idx={sIdx()} innerHTML={sentence + " "} onClick={() => handleSentenceClick(pIdx(), sIdx())} class="sentence-clickable" style={{ background: (activeSentence()?.[0] === pIdx() && activeSentence()?.[1] === sIdx()) ? highlightColor() : "transparent" }} />
+                        <span data-p-idx={pIdx()} data-s-idx={sIdx()} innerHTML={sentence + " "} onClick={() => handleSentenceClick(pIdx(), sIdx())} class={`sentence-clickable ${ (activeSentence()?.[0] === pIdx() && activeSentence()?.[1] === sIdx() && loadingAudio()) ? 'sentence-loading' : '' }`} style={{ background: (activeSentence()?.[0] === pIdx() && activeSentence()?.[1] === sIdx()) ? highlightColor() : "transparent" }} />
                       )}</For>
                     </p>
                   );

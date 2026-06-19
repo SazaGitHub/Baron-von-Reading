@@ -140,9 +140,8 @@ export function getPdfStructure(): BookStructure {
 
 export async function parsePdfChapter(buffer: Buffer): Promise<Chapter> {
   const data = await pdfParse(buffer);
-  const paragraphs = data.text
-    .split(/\n\s*\n/)
-    .map((p: string) => p.replace(/\s+/g, " ").trim())
+  const paragraphs = (data.text.split(/\n\s*\n/) as string[])
+    .map((p) => p.replace(/\s+/g, " ").trim())
     .filter((p) => p.length > 0);
   return { title: "Book Content", paragraphs, id: "pdf" };
 }
@@ -150,7 +149,7 @@ export async function parsePdfChapter(buffer: Buffer): Promise<Chapter> {
 /**
  * Handle EPUB: Lazy extraction using JSZip.
  */
-export async function getEpubStructure(buffer: Buffer, fileId: string): Promise<{ structure: BookStructure; opfDir: string; idToHref: Map<string, string>; spineMatches: string[]; zip: JSZip }> {
+export async function getEpubStructure(buffer: Buffer, _fileId: string): Promise<{ structure: BookStructure; opfDir: string; idToHref: Map<string, string>; spineMatches: string[]; zip: JSZip }> {
   const zip = await JSZip.loadAsync(buffer);
   const containerXml = await zip.file("META-INF/container.xml")?.async("string");
   if (!containerXml) throw new Error("Invalid EPUB: missing container.xml");

@@ -7,6 +7,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y \
     curl \
+    espeak-ng \
     libsndfile1 \
     libgomp1 \
     sox \
@@ -22,19 +23,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY pyproject.toml ./
 
 # Install dependencies using uv
-# We use --link-mode=copy to avoid hardlink issues in some docker environments
+# Separating this step ensures source code changes don't invalidate this layer
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev --link-mode=copy
 
-COPY main.py tts.py ./
-COPY start.sh ./
+# Copy source code last
+COPY main.py tts.py start.sh ./
 RUN chmod +x start.sh
 
 EXPOSE 8001
 
-ENV TTS_HOME=/tmp/tts_models
 ENV PYTHONUNBUFFERED=1
-# Ensure transformers uses the right cache directory
 ENV HF_HOME=/tmp/huggingface
+# Ensure we use the virtualenv created by uv
+ENV PATH="/app/.venv/bin:$PATH"
 
-CMD ["./start.sh"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]

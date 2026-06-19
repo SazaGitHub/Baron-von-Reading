@@ -1,14 +1,67 @@
 import { createSignal, createResource, For, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { getBooks, uploadBook, deleteBook } from "../lib/api";
+import { getBooks, uploadBook, deleteBook, renameBook, getBookshelves, createBookshelf, deleteBookshelf, addBookToShelf, removeBookFromShelf } from "../lib/api";
 import { setToken } from "../lib/token";
 import { settings, saveSettings } from "../stores/settingsStore";
 
 export default function LibraryPage() {
   const navigate = useNavigate();
-  const [books, { refetch }] = createResource(getBooks);
+  const [books, { refetch: refetchBooks }] = createResource(getBooks);
+  const [shelves, { refetch: refetchShelves }] = createResource(getBookshelves);
   const [uploading, setUploading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [editingId, setEditingId] = createSignal<string | null>(null);
+  const [editName, setEditName] = createSignal("");
+  const [selectedShelfId, setSelectedShelfId] = createSignal<number | null>(null); // null = All Books
+  const [newShelfName, setNewShelfName] = createSignal("");
+  const [showAddShelf, setShowShelfInput] = createSignal(false);
+
+  const filteredBooks = () => {
+    const all = books() ?? [];
+    const shelfId = selectedShelfId();
+    if (shelfId === null) return all;
+    const shelf = shelves()?.find(s => s.id === shelfId);
+    if (!shelf) return all;
+    return all.filter(b => shelf.bookFileIds.includes(b.fileId));
+  };
+
+  const handleCreateShelf = async (e: Event) => {
+    e.preventDefault();
+    const name = newShelfName().trim();
+    if (!name) return;
+    try {
+      await createBookshelf(name);
+      setNewShelfName("");
+      setShowShelfInput(false);
+      refetchShelves();
+    } catch (err) {
+      setError("Failed to create bookshelf");
+    }
+  };
+
+  const handleDeleteShelf = async (id: number) => {
+    if (!confirm("Delete this bookshelf? Books will not be deleted.")) return;
+    try {
+      await deleteBookshelf(id);
+      if (selectedShelfId() === id) setSelectedShelfId(null);
+      refetchShelves();
+    } catch (err) {
+      setError("Failed to delete bookshelf");
+    }
+  };
+
+  const handleToggleBookInShelf = async (fileId: string, shelfId: number, inShelf: boolean) => {
+    try {
+      if (inShelf) {
+        await removeBookFromShelf(shelfId, fileId);
+      } else {
+        await addBookToShelf(shelfId, fileId);
+      }
+      refetchShelves();
+    } catch (err) {
+      setError("Failed to update bookshelf");
+    }
+  };
 
   const handleUpload = async (e: Event) => {
     const input = e.currentTarget as HTMLInputElement;
@@ -18,7 +71,7 @@ export default function LibraryPage() {
     setError(null);
     try {
       await uploadBook(file);
-      await refetch();
+      await refetchBooks();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -27,11 +80,29 @@ export default function LibraryPage() {
     }
   };
 
+  const handleRename = async (fileId: string) => {
+    const name = editName().trim();
+    if (!name) return;
+    try {
+      await renameBook(fileId, name);
+      setEditingId(null);
+      await refetchBooks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Rename failed");
+    }
+  };
+
+  const startEditing = (book: any) => {
+    setEditingId(book.fileId);
+    setEditName(book.displayName || book.name);
+  };
+
   const handleDelete = async (fileId: string) => {
     if (!confirm(`Delete "${fileId}"?`)) return;
     try {
       await deleteBook(fileId);
-      await refetch();
+      await refetchBooks();
+      await refetchShelves();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed");
     }
@@ -209,48 +280,144 @@ export default function LibraryPage() {
           </div>
         </Show>
 
-        <div style={{ display: "grid", gap: "0.75rem" }}>
-          <For each={books()}>
-            {(book) => (
-              <div style={{ 
-                display: "flex", 
-                "align-items": "center", 
-                "justify-content": "space-between", 
-                padding: "1rem 1.25rem", 
-                background: cardBg(), 
-                "border-radius": "12px",
-                border: `1px solid ${borderColor()}`,
-                "box-shadow": "0 1px 3px rgba(0,0,0,0.05)",
-                transition: "transform 0.2s, border-color 0.2s"
-              }}>
-                <span
-                  style={{ cursor: "pointer", "font-size": "1.05rem", flex: 1, "font-weight": "500" }}
-                  onClick={() => navigate(`/read/${encodeURIComponent(book.fileId)}`)}
-                >
-                  📖 {book.name}
-                </span>
-                <button
-                  onClick={() => handleDelete(book.fileId)}
-                  style={{ 
-                    background: "none", 
-                    border: "none", 
-                    color: "#94a3b8", 
-                    cursor: "pointer", 
-                    "font-size": "1.2rem", 
-                    "margin-left": "1rem",
-                    padding: "0.4rem",
-                    transition: "color 0.2s"
+          <div style={{ display: "flex", gap: "0.5rem", "margin-bottom": "2rem", "flex-wrap": "wrap", "align-items": "center" }}>
+            <button 
+              onClick={() => setSelectedShelfId(null)}
+              style={{
+                padding: "0.4rem 1rem", "border-radius": "20px", border: "none", cursor: "pointer",
+                background: selectedShelfId() === null ? "#38bdf8" : "rgba(0,0,0,0.05)",
+                color: selectedShelfId() === null ? "#0f172a" : fgColor(),
+                "font-weight": "600", "font-size": "0.85rem"
+              }}
+            >
+              All Books
+            </button>
+            <For each={shelves()}>{(shelf) => (
+              <div style={{ position: "relative", display: "inline-flex", "align-items": "center" }}>
+                <button 
+                  onClick={() => setSelectedShelfId(shelf.id)}
+                  style={{
+                    padding: "0.4rem 1rem", "border-radius": "20px", border: "none", cursor: "pointer",
+                    background: selectedShelfId() === shelf.id ? "#38bdf8" : "rgba(0,0,0,0.05)",
+                    color: selectedShelfId() === shelf.id ? "#0f172a" : fgColor(),
+                    "font-weight": "600", "font-size": "0.85rem"
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = "#ef4444"}
-                  onMouseLeave={(e) => e.currentTarget.style.color = "#94a3b8"}
-                  title="Delete"
                 >
-                  🗑
+                  📁 {shelf.name}
                 </button>
+                <Show when={selectedShelfId() === shelf.id}>
+                  <button onClick={() => handleDeleteShelf(shelf.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", "margin-left": "0.3rem", "font-size": "0.8rem" }}>×</button>
+                </Show>
               </div>
-            )}
-          </For>
-        </div>
+            )}</For>
+            <Show when={!showAddShelf()} fallback={
+              <form onSubmit={handleCreateShelf} style={{ display: "flex", gap: "0.4rem" }}>
+                <input autofocus type="text" value={newShelfName()} onInput={(e) => setNewShelfName(e.currentTarget.value)} placeholder="Shelf name..." style={{ padding: "0.3rem 0.6rem", "border-radius": "6px", border: `1px solid ${borderColor()}`, background: bgColor(), color: fgColor(), "font-size": "0.85rem" }} />
+                <button type="submit" style={{ background: "#38bdf8", border: "none", "border-radius": "6px", padding: "0 0.6rem", cursor: "pointer" }}>OK</button>
+                <button onClick={() => setShowShelfInput(false)} style={{ background: "none", border: "none", color: fgColor(), cursor: "pointer" }}>Cancel</button>
+              </form>
+            }>
+              <button onClick={() => setShowShelfInput(true)} style={{ padding: "0.4rem 1rem", "border-radius": "20px", border: "1px dashed #38bdf8", background: "none", color: "#38bdf8", cursor: "pointer", "font-size": "0.85rem" }}>+ New Shelf</button>
+            </Show>
+          </div>
+
+          <div style={{ display: "grid", gap: "0.75rem" }}>
+            <For each={filteredBooks()}>
+              {(book) => (
+                <div style={{ 
+                  display: "flex", 
+                  "align-items": "center", 
+                  "justify-content": "space-between", 
+                  padding: "1rem 1.25rem", 
+                  background: cardBg(), 
+                  "border-radius": "12px",
+                  border: `1px solid ${borderColor()}`,
+                  "box-shadow": "0 1px 3px rgba(0,0,0,0.05)",
+                  transition: "transform 0.2s, border-color 0.2s"
+                }}>
+                  <Show when={editingId() === book.fileId} 
+                    fallback={
+                      <span
+                        style={{ cursor: "pointer", "font-size": "1.05rem", flex: 1, "font-weight": "500" }}
+                        onClick={() => navigate(`/read/${encodeURIComponent(book.fileId)}`)}
+                      >
+                        {book.fileId.endsWith(".pdf") ? "📕" : book.fileId.endsWith(".epub") ? "📗" : "📄"} {book.displayName || book.name}
+                      </span>
+                    }
+                  >
+                    <div style={{ display: "flex", gap: "0.5rem", flex: 1 }}>
+                      <input 
+                        type="text" 
+                        value={editName()} 
+                        onInput={(e) => setEditName(e.currentTarget.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleRename(book.fileId)}
+                        style={{
+                          flex: 1,
+                          padding: "0.4rem 0.8rem",
+                          "border-radius": "6px",
+                          border: `1px solid ${borderColor()}`,
+                          background: bgColor(),
+                          color: fgColor(),
+                          "font-size": "0.9rem"
+                        }}
+                        autofocus
+                      />
+                      <button onClick={() => handleRename(book.fileId)} style={{ background: "#38bdf8", color: "#0f172a", border: "none", "border-radius": "6px", padding: "0 0.8rem", cursor: "pointer", "font-weight": "600" }}>Save</button>
+                      <button onClick={() => setEditingId(null)} style={{ background: "transparent", color: fgColor(), border: `1px solid ${borderColor()}`, "border-radius": "6px", padding: "0 0.8rem", cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  </Show>
+
+                  <div style={{ display: "flex", "align-items": "center", gap: "0.5rem" }}>
+                    <div style={{ display: "flex", gap: "0.2rem" }}>
+                      <For each={shelves()}>{(shelf) => (
+                        <button 
+                          onClick={() => handleToggleBookInShelf(book.fileId, shelf.id, shelf.bookFileIds.includes(book.fileId))}
+                          title={shelf.bookFileIds.includes(book.fileId) ? `Remove from ${shelf.name}` : `Add to ${shelf.name}`}
+                          style={{ 
+                            background: shelf.bookFileIds.includes(book.fileId) ? "#38bdf8" : "rgba(0,0,0,0.05)",
+                            border: "none",
+                            "border-radius": "4px", padding: "0.1rem 0.3rem", cursor: "pointer", "font-size": "0.6rem",
+                            color: shelf.bookFileIds.includes(book.fileId) ? "#0f172a" : fgColor(), opacity: 0.7
+                          }}
+                        >
+                          {shelf.name.substring(0, 3)}
+                        </button>
+                      )}</For>
+                    </div>
+                    <Show when={editingId() !== book.fileId}>
+                      <button 
+                        onClick={() => startEditing(book)}
+                        style={{ background: "none", border: "none", cursor: "pointer", "font-size": "1.1rem", opacity: 0.5 }}
+                        title="Rename"
+                      >
+                        ✏️
+                      </button>
+                    </Show>
+                    <button
+                      onClick={() => handleDelete(book.fileId)}
+                      style={{ 
+                        background: "none", 
+                        border: "none", 
+                        color: "#94a3b8", 
+                        cursor: "pointer", 
+                        "font-size": "1.2rem", 
+                        padding: "0.4rem",
+                        transition: "color 0.2s"
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = "#ef4444"}
+                      onMouseLeave={(e) => e.currentTarget.style.color = "#94a3b8"}
+                      title="Delete"
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </div>
+              )}
+            </For>
+            <Show when={filteredBooks().length === 0 && !books.loading}>
+              <p style={{ "text-align": "center", opacity: 0.5, padding: "2rem" }}>No books found in this shelf.</p>
+            </Show>
+          </div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import path from "path";
-import { readdir, mkdir, unlink } from "fs/promises";
+import { readdir, mkdir, unlink, readFile, writeFile } from "fs/promises";
 import { 
   getTxtStructure, parseTxtChapter, 
   getPdfStructure, parsePdfChapter,
@@ -7,11 +7,14 @@ import {
   type Chapter, type BookStructure 
 } from "../lib/parsers";
 
-const DATA_DIR = process.env["DATA_DIR"] ?? path.join(import.meta.dir, "../../data");
+import { db } from "../db/schema";
+
+const DATA_DIR = process.env["DATA_DIR"] ?? path.join(process.cwd(), "data");
 
 interface BookMeta {
   fileId: string;
   name: string;
+  displayName: string;
 }
 
 // In-memory cache for book structure and context
@@ -36,13 +39,14 @@ async function getOrInitContext(fileId: string): Promise<BookContext> {
   if (cached) return cached;
 
   const filePath = path.join(DATA_DIR, fileId);
-  const fileHandle = Bun.file(filePath);
-  if (!(await fileHandle.exists())) throw new Error("File not found");
+  let buf: Buffer;
+  try {
+    buf = await readFile(filePath);
+  } catch {
+    throw new Error("File not found");
+  }
 
   const ext = path.extname(fileId).toLowerCase();
-  
-  // Use arrayBuffer directly and wrap in Buffer once to avoid redundant copies
-  const buf = Buffer.from(await fileHandle.arrayBuffer());
 
   let ctx: BookContext;
   if (ext === ".txt") {
@@ -69,7 +73,7 @@ async function getOrInitContext(fileId: string): Promise<BookContext> {
   return ctx;
 }
 
-export async function handleBooks(req: Request, _userId: number): Promise<Response> {
+export async function handleBooks(req: Request, userId: number): Promise<Response> {
   const url = new URL(req.url);
 
   // GET /api/books
@@ -80,12 +84,45 @@ export async function handleBooks(req: Request, _userId: number): Promise<Respon
     } catch {
       names = [];
     }
+    
+    // Fetch all metadata in one query for this user
+    const metaRows = db.query("SELECT file_id, display_name FROM book_metadata WHERE user_id = ?").all(userId) as { file_id: string, display_name: string }[];
+    const metaMap = new Map(metaRows.map(r => [r.file_id, r.display_name]));
+
+    // In a real multi-user scenario, DATA_DIR should be user-specific or 
+    // files should be tracked in a DB table with owner_id.
+    // For now, we filter by what the user has metadata for, or show all if metadata is missing.
     const books: BookMeta[] = names
       .filter((n) => [".txt", ".pdf", ".epub"].includes(path.extname(n).toLowerCase()))
-      .map((name) => ({ fileId: name, name }));
+      .map((name) => {
+        const displayName = metaMap.get(name);
+        return { 
+          fileId: name, 
+          name, 
+          displayName: displayName || name 
+        };
+      });
     return new Response(JSON.stringify(books), {
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  // PATCH /api/books/:fileId (Rename)
+  const patchMatch = url.pathname.match(/^\/api\/books\/(.+)$/);
+  if (req.method === "PATCH" && patchMatch && !url.pathname.includes("/chapters/") && !url.pathname.includes("/images/")) {
+    const fileId = decodeURIComponent(patchMatch[1]);
+    try {
+      const { displayName } = await req.json();
+      db.run(
+        "INSERT INTO book_metadata (user_id, file_id, display_name) VALUES (?, ?, ?) ON CONFLICT(user_id, file_id) DO UPDATE SET display_name = excluded.display_name",
+        [userId, fileId, displayName]
+      );
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (err) {
+      return new Response(JSON.stringify({ error: (err as Error).message }), { status: 400 });
+    }
   }
 
   // DELETE /api/books/:fileId
@@ -94,8 +131,16 @@ export async function handleBooks(req: Request, _userId: number): Promise<Respon
     const fileId = decodeURIComponent(deleteMatch[1]);
     const filePath = path.join(DATA_DIR, fileId);
     try {
+      // Security: Only allow deleting if it doesn't try to escape DATA_DIR
+      if (fileId.includes("..") || path.isAbsolute(fileId)) {
+        return new Response(JSON.stringify({ error: "Invalid file ID" }), { status: 400 });
+      }
+      
       await unlink(filePath);
       bookContextCache.delete(fileId);
+      // Clean up metadata
+      db.run("DELETE FROM book_metadata WHERE user_id = ? AND file_id = ?", [userId, fileId]);
+      db.run("DELETE FROM progress WHERE user_id = ? AND file_id = ?", [userId, fileId]);
     } catch {
       return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
     }
@@ -197,9 +242,8 @@ export async function handleBooks(req: Request, _userId: number): Promise<Respon
     await mkdir(DATA_DIR, { recursive: true });
     const destPath = path.join(DATA_DIR, file.name);
     
-    // Pass the File object directly to Bun.write.
-    // This is the most efficient way and correctly writes binary data.
-    await Bun.write(destPath, file);
+    // Write binary data from the File object using Node's writeFile.
+    await writeFile(destPath, Buffer.from(await file.arrayBuffer()));
     
     return new Response(JSON.stringify({ fileId: file.name }), {
       status: 201,
